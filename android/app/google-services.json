@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "480015860775",
+    "project_id": "fir-ovo",
+    "storage_bucket": "fir-ovo.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:480015860775:android:a4fb54821749689e557a02",
+        "android_client_info": {
+          "package_name": "com.sovo.chat"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "480015860775-kmnqqneo9ceafsfu724rpfcq2444bskt.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBdxWk7fQF6qm3vrk9xWVd8w8kJMfGSO_E"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "480015860775-kmnqqneo9ceafsfu724rpfcq2444bskt.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
