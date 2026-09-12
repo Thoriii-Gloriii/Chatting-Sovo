@@ -6,3 +6,5 @@ coverage/
 *.log
 .env*
 !.env.example
+android/app/capacitor.build.gradle
+android/capacitor.settings.gradle
