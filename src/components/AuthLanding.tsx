@@ -59,7 +59,28 @@ export const AuthLanding: React.FC<AuthLandingProps> = ({ onAuthenticate }) => {
           sound.playBiometricSuccess();
           onAuthenticate(userDoc.data() as User);
         } else {
-          setErrorMsg("User profile not found in database.");
+          // The Firebase Auth account exists but its Firestore profile doesn't
+          // (e.g. the signup write failed or was interrupted partway through).
+          // Rebuild a minimal profile from the Auth record instead of locking
+          // the user out of an account they can legitimately sign in to.
+          const fallbackName = fbUser.displayName || identifier.split('@')[0];
+          const recoveredUser: User = {
+            id: fbUser.uid,
+            username: identifier.split('@')[0],
+            displayName: fallbackName,
+            phoneNumber: fbUser.phoneNumber || "",
+            avatarUrl: fbUser.photoURL || `https://ui-avatars.com/api/?name=${encodeURIComponent(fallbackName)}&background=222230&color=ffd700`,
+            bio: "Hey there! I am using S'ovo.",
+            isOnline: true,
+            lastSeen: Date.now(),
+            joinedAt: new Date().toISOString(),
+            devicesCount: 1,
+            biometricEnabled: false,
+            pinCode: "0000", e2eePublicKey: "GEN_KEY", e2eeFingerprint: "SOVO-E2EE-GEN"
+          };
+          await setDoc(doc(db, "users", fbUser.uid), recoveredUser);
+          sound.playBiometricSuccess();
+          onAuthenticate(recoveredUser);
         }
       }
     } catch (err: any) {
