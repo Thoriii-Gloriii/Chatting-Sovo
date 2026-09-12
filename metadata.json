@@ -1,0 +1,6 @@
+{
+  "name": "S'ovo",
+  "description": "Encrypted messaging with TikTok-style 24h & 3-day statuses, group chats, 2GB file sharing, biometric lock, and glossy gold luxury aesthetics.",
+  "requestFramePermissions": ["camera", "microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

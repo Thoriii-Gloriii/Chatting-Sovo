@@ -1,0 +1,136 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --gold-primary: #d4af37;
+    --gold-bright: #ffd700;
+    --gold-light: #fef3c7;
+    --gold-dark: #997b19;
+    --gold-gradient: linear-gradient(135deg, #fff2a3 0%, #d4af37 50%, #aa7c11 100%);
+    --gold-glossy: linear-gradient(180deg, rgba(255, 235, 150, 0.4) 0%, rgba(212, 175, 55, 0.1) 50%, rgba(170, 124, 17, 0.3) 100%);
+    --obsidian-base: #050507;
+    --obsidian-card: #0c0c10;
+    --obsidian-elevated: #14141a;
+    --obsidian-border: rgba(212, 175, 55, 0.18);
+  }
+
+  body {
+    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+    background-color: #050507;
+    color: #f3f4f6;
+  }
+
+  h1, h2, h3, h4, .font-display {
+    font-family: 'Outfit', sans-serif;
+  }
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+::-webkit-scrollbar-track {
+  background: #09090d;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #2a2517;
+  border-radius: 9999px;
+  border: 1px solid rgba(212, 175, 55, 0.2);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #d4af37;
+}
+
+/* Glossy Gold Text */
+.text-gold-glossy {
+  background: linear-gradient(135deg, #fff7c2 0%, #d4af37 40%, #f3ce5e 70%, #aa7c11 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.text-gold-subtle {
+  background: linear-gradient(135deg, #faeed1 0%, #d4af37 60%, #b89025 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* Glossy Gold Shimmer Border & Background */
+.gold-border-glow {
+  border-color: rgba(212, 175, 55, 0.35);
+  box-shadow: 0 0 15px -3px rgba(212, 175, 55, 0.15), inset 0 1px 0 rgba(255, 235, 150, 0.25);
+}
+
+.gold-gradient-bg {
+  background: linear-gradient(135deg, #f7df87 0%, #d4af37 50%, #946d0a 100%);
+}
+
+.gold-glossy-button {
+  background: linear-gradient(180deg, #ffeaa7 0%, #d4af37 55%, #a67c13 100%);
+  box-shadow: 0 4px 14px rgba(212, 175, 55, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.5);
+}
+
+.gold-glossy-button:hover {
+  background: linear-gradient(180deg, #fff2c4 0%, #deb841 55%, #b88b1b 100%);
+  box-shadow: 0 6px 20px rgba(212, 175, 55, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.6);
+}
+
+.gold-glow {
+  box-shadow: 0 0 25px -4px rgba(212, 175, 55, 0.3);
+}
+
+.gold-pill-active {
+  background: linear-gradient(135deg, rgba(212, 175, 55, 0.25) 0%, rgba(170, 124, 17, 0.15) 100%);
+  border: 1px solid rgba(212, 175, 55, 0.4);
+  color: #ffd700;
+}
+
+/* Vertical TikTok reel snap scrolling */
+.tiktok-scroll-container {
+  scroll-snap-type: y mandatory;
+  overflow-y: scroll;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+
+.tiktok-scroll-container::-webkit-scrollbar {
+  display: none;
+}
+
+.tiktok-story-item {
+  scroll-snap-align: start;
+  scroll-snap-stop: always;
+}
+
+/* Biometric pulse */
+@keyframes goldPulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(212, 175, 55, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 0 18px rgba(212, 175, 55, 0);
+  }
+}
+
+.animate-gold-pulse {
+  animation: goldPulse 2s infinite cubic-bezier(0.4, 0, 0.6, 1);
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.shimmer-gold {
+  background: linear-gradient(90deg, rgba(212, 175, 55, 0) 0%, rgba(255, 235, 150, 0.3) 50%, rgba(212, 175, 55, 0) 100%);
+  background-size: 200% 100%;
+  animation: shimmer 2.5s infinite;
+}
+
