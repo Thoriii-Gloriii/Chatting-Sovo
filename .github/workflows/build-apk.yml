@@ -40,8 +40,19 @@ jobs:
           chmod +x ./gradlew
           ./gradlew assembleDebug
 
-      - name: Upload APK
+      - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: Sovo-Chat-APK
           path: android/app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Update Latest Release
+        uses: ncipollo/release-action@v1
+        with:
+          name: "S'ovo Chat App (Latest)"
+          tag: "latest"
+          allowUpdates: true
+          removeArtifacts: true
+          artifacts: "android/app/build/outputs/apk/debug/app-debug.apk"
+          token: ${{ secrets.GITHUB_TOKEN }}
+          body: "Direct download link for the latest APK."
