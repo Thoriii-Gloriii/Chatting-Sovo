@@ -29,7 +29,7 @@ interface StatusReelsViewProps {
   stories: UserStatusStory[];
   currentUser: User;
   onSendStatusReply: (contactId: string, replyText: string, statusItem: StatusItem) => void;
-  onAddStatus: (newItem: StatusItem) => void;
+  onAddStatus: (file: File, caption: string, durationDays: StoryDuration, privacy: StoryPrivacy) => Promise<void>;
   onToggleLike: (storyUserId: string, itemId: string) => void;
 }
 
@@ -52,10 +52,11 @@ export const StatusReelsView: React.FC<StatusReelsViewProps> = ({
   const [newCaption, setNewCaption] = useState('');
   const [newDuration, setNewDuration] = useState<StoryDuration>(1);
   const [newPrivacy, setNewPrivacy] = useState<StoryPrivacy>('all_contacts');
-  const [newMediaUrl, setNewMediaUrl] = useState(
-    'https://images.unsplash.com/photo-1579783900882-c0d3dad7b119?w=1080&auto=format&fit=crop&q=85'
-  );
-  const [newMusicTitle, setNewMusicTitle] = useState('Obsidian Echoes - Hans Zimmer');
+  const [newMediaFile, setNewMediaFile] = useState<File | null>(null);
+  const [newMediaPreviewUrl, setNewMediaPreviewUrl] = useState<string | null>(null);
+  const [isPosting, setIsPosting] = useState(false);
+  const [postError, setPostError] = useState('');
+  const statusFileInputRef = useRef<HTMLInputElement>(null);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const activeUserStory = stories[currentUserIndex] || stories[0];
@@ -147,30 +148,38 @@ export const StatusReelsView: React.FC<StatusReelsViewProps> = ({
     setReplyText('');
   };
 
-  const handleCreateStatus = (e: React.FormEvent) => {
+  const handleMediaFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/') && !file.type.startsWith('video/')) {
+      setPostError('Please choose an image or video file.');
+      return;
+    }
+    setPostError('');
+    setNewMediaFile(file);
+    setNewMediaPreviewUrl(URL.createObjectURL(file));
+  };
+
+  const handleCreateStatus = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!newMediaFile) {
+      setPostError('Choose a photo or video for your status first.');
+      return;
+    }
     sound.playSend();
-
-    const durationMs = newDuration * 24 * 60 * 60 * 1000;
-    const newItem: StatusItem = {
-      id: `st_${Date.now()}`,
-      mediaUrl: newMediaUrl,
-      mediaType: 'image',
-      caption: newCaption || 'Captured with S’ovo E2EE Camera',
-      createdAt: Date.now(),
-      expiresAt: Date.now() + durationMs,
-      durationDays: newDuration,
-      privacy: newPrivacy,
-      musicTrack: newMusicTitle ? { title: newMusicTitle, artist: 'S’ovo Audio' } : undefined,
-      likesCount: 0,
-      hasLiked: false,
-      viewsCount: 1,
-      isEncrypted: true,
-    };
-
-    onAddStatus(newItem);
-    setShowAddModal(false);
-    setNewCaption('');
+    setIsPosting(true);
+    setPostError('');
+    try {
+      await onAddStatus(newMediaFile, newCaption || '', newDuration, newPrivacy);
+      setShowAddModal(false);
+      setNewCaption('');
+      setNewMediaFile(null);
+      setNewMediaPreviewUrl(null);
+    } catch (err: any) {
+      setPostError(err?.message || 'Failed to post status.');
+    } finally {
+      setIsPosting(false);
+    }
   };
 
   const expirationInfo = activeItem
@@ -549,48 +558,38 @@ export const StatusReelsView: React.FC<StatusReelsViewProps> = ({
               </div>
 
               <form onSubmit={handleCreateStatus} className="space-y-4">
-                {/* Media Preview / Selection */}
+                {/* Media Selection */}
                 <div>
                   <label className="block text-xs font-semibold text-gray-300 mb-1.5">
-                    Select Media or Preset
+                    Photo or Video
                   </label>
-                  <div className="grid grid-cols-3 gap-2 mb-2">
-                    {[
-                      {
-                        url: 'https://images.unsplash.com/photo-1507679799987-c73779587ccf?w=1080&auto=format&fit=crop&q=85',
-                        title: 'Golden Horizon',
-                      },
-                      {
-                        url: 'https://images.unsplash.com/photo-1533105079780-92b9be482077?w=1080&auto=format&fit=crop&q=85',
-                        title: 'Amalfi Coast',
-                      },
-                      {
-                        url: 'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=1080&auto=format&fit=crop&q=85',
-                        title: 'Kyoto Sanctuary',
-                      },
-                    ].map((preset, idx) => (
-                      <div
-                        key={idx}
-                        onClick={() => setNewMediaUrl(preset.url)}
-                        className={`relative h-20 rounded-xl overflow-hidden cursor-pointer border-2 transition ${
-                          newMediaUrl === preset.url
-                            ? 'border-[#ffd700] ring-2 ring-[#d4af37]/50'
-                            : 'border-transparent opacity-70 hover:opacity-100'
-                        }`}
-                      >
-                        <img
-                          src={preset.url}
-                          alt={preset.title}
-                          className="w-full h-full object-cover"
-                        />
-                        {newMediaUrl === preset.url && (
-                          <div className="absolute inset-0 bg-[#d4af37]/20 flex items-center justify-center">
-                            <Check className="w-5 h-5 text-[#ffd700] bg-black/60 rounded-full p-0.5" />
-                          </div>
-                        )}
+                  <input
+                    ref={statusFileInputRef}
+                    type="file"
+                    accept="image/*,video/*"
+                    className="hidden"
+                    onChange={handleMediaFileChange}
+                  />
+                  <div
+                    onClick={() => statusFileInputRef.current?.click()}
+                    className={`relative h-40 rounded-xl overflow-hidden cursor-pointer border-2 border-dashed transition flex items-center justify-center ${
+                      newMediaPreviewUrl ? 'border-[#ffd700]' : 'border-[#2d2c38] hover:border-[#d4af37]/60'
+                    }`}
+                  >
+                    {newMediaPreviewUrl ? (
+                      newMediaFile?.type.startsWith('video/') ? (
+                        <video src={newMediaPreviewUrl} className="w-full h-full object-cover" muted />
+                      ) : (
+                        <img src={newMediaPreviewUrl} alt="Selected status" className="w-full h-full object-cover" />
+                      )
+                    ) : (
+                      <div className="flex flex-col items-center gap-1.5 text-gray-500">
+                        <ImageIcon className="w-6 h-6" />
+                        <span className="text-[11px]">Tap to choose a photo or video</span>
                       </div>
-                    ))}
+                    )}
                   </div>
+                  {postError && <p className="text-[11px] text-red-400 mt-1.5">{postError}</p>}
                 </div>
 
                 {/* Caption input */}
@@ -678,10 +677,15 @@ export const StatusReelsView: React.FC<StatusReelsViewProps> = ({
 
                 <button
                   type="submit"
-                  className="w-full py-3.5 rounded-xl gold-glossy-button text-black font-display font-bold text-sm flex items-center justify-center gap-2 cursor-pointer shadow-lg active:scale-98"
+                  disabled={isPosting || !newMediaFile}
+                  className="w-full py-3.5 rounded-xl gold-glossy-button text-black font-display font-bold text-sm flex items-center justify-center gap-2 cursor-pointer shadow-lg active:scale-98 disabled:opacity-50"
                 >
-                  <Sparkles className="w-4 h-4 text-black fill-black" />
-                  <span>Publish Encrypted Reel ({newDuration === 3 ? '3-Day' : '24h'})</span>
+                  {isPosting ? (
+                    <div className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin" />
+                  ) : (
+                    <Sparkles className="w-4 h-4 text-black fill-black" />
+                  )}
+                  <span>{isPosting ? 'Posting...' : `Publish Status (${newDuration === 3 ? '3-Day' : '24h'})`}</span>
                 </button>
               </form>
             </motion.div>

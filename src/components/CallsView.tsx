@@ -20,7 +20,7 @@ import { sound } from '../lib/sound';
 interface CallsViewProps {
   calls: CallRecord[];
   currentUser: User;
-  onInitiateCall: (peerName: string, type: 'audio' | 'video') => void;
+  onInitiateCall: (peerId: string, peerName: string, type: 'audio' | 'video') => void;
 }
 
 export const CallsView: React.FC<CallsViewProps> = ({ calls, currentUser, onInitiateCall }) => {
@@ -117,7 +117,7 @@ export const CallsView: React.FC<CallsViewProps> = ({ calls, currentUser, onInit
                   type="button"
                   onClick={() => {
                     sound.playTap();
-                    onInitiateCall(call.peerName, 'audio');
+                    onInitiateCall(call.peerId, call.peerName, 'audio');
                   }}
                   className="p-2.5 rounded-xl bg-[#14141d] hover:bg-[#201f2c] border border-[#272635] text-[#ffd700] transition cursor-pointer"
                   title="Voice Call"
@@ -129,7 +129,7 @@ export const CallsView: React.FC<CallsViewProps> = ({ calls, currentUser, onInit
                   type="button"
                   onClick={() => {
                     sound.playTap();
-                    onInitiateCall(call.peerName, 'video');
+                    onInitiateCall(call.peerId, call.peerName, 'video');
                   }}
                   className="p-2.5 rounded-xl bg-[#14141d] hover:bg-[#201f2c] border border-[#272635] text-[#ffd700] transition cursor-pointer"
                   title="Video Call"

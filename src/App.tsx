@@ -1,4 +1,5 @@
-import { auth, db, onAuthStateChanged, collection, query, where, onSnapshot, getDoc, doc, setDoc } from './lib/firebase';
+import { auth, db, onAuthStateChanged, collection, query, where, onSnapshot, getDoc, getDocs, doc, setDoc, updateDoc, addDoc, arrayUnion, arrayRemove, increment, serverTimestamp } from './lib/firebase';
+import { uploadFileToStorage } from './lib/upload';
 import React, { useState, useEffect } from 'react';
 import {
   User,
@@ -12,16 +13,6 @@ import {
   UserSettings,
   MediaType,
 } from './types';
-import {
-  CURRENT_USER,
-  INITIAL_SETTINGS,
-  INITIAL_STATUS_STORIES,
-  INITIAL_CONVERSATIONS,
-  INITIAL_MESSAGES_MAP,
-  INITIAL_SYNCED_CONTACTS,
-  INITIAL_LINKED_DEVICES,
-  INITIAL_CALLS,
-} from './data/mockInitialData';
 import { SovoLogo } from './components/SovoLogo';
 import { SplashScreen } from './components/SplashScreen';
 import { AuthLanding } from './components/AuthLanding';
@@ -49,6 +40,22 @@ import {
   Search,
 } from 'lucide-react';
 
+// Real default app settings (not mock user data — every account starts here
+// until they change something in Settings, which persists to Firestore).
+const DEFAULT_SETTINGS: UserSettings = {
+  readReceipts: true,
+  biometricLock: false,
+  autoLockMinutes: 5,
+  phoneVisibility: 'contacts',
+  lastSeenVisibility: 'contacts',
+  darkMode: true,
+  e2eeAlwaysEnforced: true,
+  soundEffects: true,
+  highQualityUploads: true,
+  defaultStoryDuration: 1,
+  activeDevicePlatform: /Android/i.test(navigator.userAgent) ? 'Android' : 'web',
+};
+
 export default function App() {
   // Navigation & App Lifecycle states
   const [appStage, setAppStage] = useState<'splash' | 'auth' | 'main'>('splash');
@@ -72,18 +79,19 @@ export default function App() {
 
   // Active call state
   const [activeCall, setActiveCall] = useState<{
+    peerId: string;
     peerName: string;
     type: 'audio' | 'video';
   } | null>(null);
 
-  // Data Collections
-  const [settings, setSettings] = useState<UserSettings>(INITIAL_SETTINGS);
-  const [conversations, setConversations] = useState<Conversation[]>(INITIAL_CONVERSATIONS);
-  const [messagesMap, setMessagesMap] = useState<Record<string, Message[]>>(INITIAL_MESSAGES_MAP);
-  const [statusStories, setStatusStories] = useState<UserStatusStory[]>(INITIAL_STATUS_STORIES);
-  const [syncedContacts, setSyncedContacts] = useState<SyncedContact[]>(INITIAL_SYNCED_CONTACTS);
-  const [linkedDevices, setLinkedDevices] = useState<LinkedDevice[]>(INITIAL_LINKED_DEVICES);
-  const [callsList, setCallsList] = useState<CallRecord[]>(INITIAL_CALLS);
+  // Data Collections — all populated from Firestore below, never from mock/fake seed data.
+  const [settings, setSettings] = useState<UserSettings>(DEFAULT_SETTINGS);
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [messagesMap, setMessagesMap] = useState<Record<string, Message[]>>({});
+  const [statusStories, setStatusStories] = useState<UserStatusStory[]>([]);
+  const [syncedContacts, setSyncedContacts] = useState<SyncedContact[]>([]);
+  const [linkedDevices, setLinkedDevices] = useState<LinkedDevice[]>([]);
+  const [callsList, setCallsList] = useState<CallRecord[]>([]);
 
   // Check saved session on load
   useEffect(() => {
@@ -150,6 +158,116 @@ export default function App() {
     return () => unsubscribe();
   }, [currentUser]);
 
+  // Real user directory: every other registered account, used to power "Discover"
+  // and @username search instead of a fake local contact-sync simulation.
+  useEffect(() => {
+    if (!currentUser) return;
+    const unsubscribe = onSnapshot(collection(db, 'users'), (snapshot) => {
+      const others = snapshot.docs
+        .map((d) => d.data() as User)
+        .filter((u) => u.id !== currentUser.id);
+      const asContacts: SyncedContact[] = others.map((u) => ({
+        id: u.id,
+        name: u.displayName,
+        phoneNumber: u.phoneNumber || '',
+        isRegistered: true,
+        sovoUsername: u.username,
+        sovoAvatar: u.avatarUrl,
+        sovoUserId: u.id,
+        status: u.bio,
+      }));
+      setSyncedContacts(asContacts);
+    });
+    return () => unsubscribe();
+  }, [currentUser]);
+
+  // Real status stories: read from Firestore, grouped by author, dropping
+  // anything already expired. Posting a status is handled by handleAddStatus.
+  useEffect(() => {
+    if (!currentUser) return;
+    const q = query(collection(db, 'statuses'), where('expiresAt', '>', Date.now()));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const byUser = new Map<string, UserStatusStory>();
+      snapshot.docs.forEach((docSnap) => {
+        const data = docSnap.data() as StatusItem & {
+          authorId: string;
+          authorUsername: string;
+          authorDisplayName: string;
+          authorAvatarUrl: string;
+          likedBy?: string[];
+        };
+        const item: StatusItem = {
+          id: docSnap.id,
+          mediaUrl: data.mediaUrl,
+          mediaType: data.mediaType,
+          caption: data.caption,
+          createdAt: data.createdAt,
+          expiresAt: data.expiresAt,
+          durationDays: data.durationDays,
+          musicTrack: data.musicTrack,
+          likesCount: data.likedBy?.length || 0,
+          hasLiked: data.likedBy?.includes(currentUser.id) || false,
+          viewsCount: data.viewsCount || 0,
+          privacy: data.privacy,
+          isEncrypted: false,
+        };
+        const existing = byUser.get(data.authorId);
+        if (existing) {
+          existing.items.push(item);
+          existing.lastUpdated = Math.max(existing.lastUpdated, data.createdAt);
+        } else {
+          byUser.set(data.authorId, {
+            userId: data.authorId,
+            username: data.authorUsername,
+            displayName: data.authorId === currentUser.id ? 'Your Status' : data.authorDisplayName,
+            avatarUrl: data.authorAvatarUrl,
+            isCurrentUser: data.authorId === currentUser.id,
+            lastUpdated: data.createdAt,
+            items: [item],
+          });
+        }
+      });
+      const stories = Array.from(byUser.values()).sort((a, b) => b.lastUpdated - a.lastUpdated);
+      stories.forEach((s) => s.items.sort((a, b) => a.createdAt - b.createdAt));
+      setStatusStories(stories);
+    });
+    return () => unsubscribe();
+  }, [currentUser]);
+
+  // Real call log, scoped to calls this account was part of.
+  useEffect(() => {
+    if (!currentUser) return;
+    const q = query(collection(db, 'calls'), where('members', 'array-contains', currentUser.id));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const calls = snapshot.docs.map((d) => d.data() as CallRecord);
+      calls.sort((a, b) => b.timestamp - a.timestamp);
+      setCallsList(calls);
+    });
+    return () => unsubscribe();
+  }, [currentUser]);
+
+  // A single, real "this device" entry — actual multi-device session tracking
+  // isn't implemented yet, so we don't fabricate a fake device history.
+  useEffect(() => {
+    if (!currentUser) {
+      setLinkedDevices([]);
+      return;
+    }
+    const isAndroidApp = /Android/i.test(navigator.userAgent) && (window as any).Capacitor;
+    setLinkedDevices([
+      {
+        id: 'this-device',
+        name: isAndroidApp ? "This Android device" : 'This browser',
+        platform: isAndroidApp ? 'Android' : 'Web',
+        location: 'Current session',
+        lastActive: Date.now(),
+        isCurrent: true,
+        ipAddress: '',
+        iconType: isAndroidApp ? 'mobile' : 'desktop',
+      },
+    ]);
+  }, [currentUser]);
+
   // Message sending handler
   const handleSendMessage = async (
     text: string,
@@ -212,111 +330,72 @@ export default function App() {
     } catch (e) {
       console.error("Error sending message", e);
     }
-
-    // Auto-respond simulation if direct chat
-    if (activeConversation.type === 'direct' && text) {
-      setTimeout(() => {
-        const replyMsg: Message = {
-          id: `msg_reply_${Date.now()}`,
-          conversationId: activeConversation.id,
-          senderId: activeConversation.id.replace('conv_direct_', 'usr_'),
-          senderName: activeConversation.name,
-          senderAvatar: activeConversation.avatar,
-          text: `Encrypted response from @${activeConversation.username || 'user'}: Received securely over S'ovo E2EE protocol.`,
-          isEncrypted: true,
-          status: 'delivered',
-          timestamp: Date.now(),
-        };
-
-        setMessagesMap((prev) => ({
-          ...prev,
-          [activeConversation.id]: [...(prev[activeConversation.id] || []), replyMsg],
-        }));
-
-        setConversations((prev) =>
-          prev.map((c) =>
-            c.id === activeConversation.id
-              ? {
-                  ...c,
-                  lastMessage: replyMsg,
-                }
-              : c
-          )
-        );
-        sound.playReceive();
-      }, 2000);
-    }
   };
 
   // Status Stories Management
-  const handleAddStatus = (newItem: StatusItem) => {
+  // Direct conversations get a stable id derived from both member UIDs (sorted),
+  // so the same two real people always land in the same real conversation
+  // instead of each client inventing its own fake/duplicate thread.
+  const getDirectConversationId = (uid1: string, uid2: string) =>
+    `conv_direct_${[uid1, uid2].sort().join('_')}`;
+
+  const handleAddStatus = async (
+    file: File,
+    caption: string,
+    durationDays: StatusItem['durationDays'],
+    privacy: StatusItem['privacy']
+  ) => {
     if (!currentUser) return;
-    setStatusStories((prev) => {
-      const myStoryIndex = prev.findIndex((s) => s.isCurrentUser);
-      if (myStoryIndex >= 0) {
-        const updated = [...prev];
-        updated[myStoryIndex] = {
-          ...updated[myStoryIndex],
-          items: [newItem, ...updated[myStoryIndex].items],
-          lastUpdated: Date.now(),
-        };
-        return updated;
-      } else {
-        const newStory: UserStatusStory = {
-          userId: currentUser.id,
-          username: currentUser.username,
-          displayName: 'Your Status',
-          avatarUrl: currentUser.avatarUrl,
-          isCurrentUser: true,
-          lastUpdated: Date.now(),
-          items: [newItem],
-        };
-        return [newStory, ...prev];
-      }
+    const now = Date.now();
+    const mediaUrl = await uploadFileToStorage(
+      `statuses/${currentUser.id}/${now}_${file.name}`,
+      file
+    );
+    await addDoc(collection(db, 'statuses'), {
+      authorId: currentUser.id,
+      authorUsername: currentUser.username,
+      authorDisplayName: currentUser.displayName,
+      authorAvatarUrl: currentUser.avatarUrl,
+      mediaUrl,
+      mediaType: file.type.startsWith('video/') ? 'video' : 'image',
+      caption,
+      createdAt: now,
+      expiresAt: now + durationDays * 24 * 60 * 60 * 1000,
+      durationDays,
+      privacy,
+      viewsCount: 0,
+      likedBy: [],
     });
   };
 
-  const handleToggleStatusLike = (storyUserId: string, itemId: string) => {
-    setStatusStories((prev) =>
-      prev.map((story) => {
-        if (story.userId === storyUserId) {
-          return {
-            ...story,
-            items: story.items.map((item) => {
-              if (item.id === itemId) {
-                const nowLiked = !item.hasLiked;
-                return {
-                  ...item,
-                  hasLiked: nowLiked,
-                  likesCount: item.likesCount + (nowLiked ? 1 : -1),
-                };
-              }
-              return item;
-            }),
-          };
-        }
-        return story;
-      })
-    );
+  const handleToggleStatusLike = async (storyUserId: string, itemId: string) => {
+    if (!currentUser) return;
+    const story = statusStories.find((s) => s.userId === storyUserId);
+    const item = story?.items.find((i) => i.id === itemId);
+    const statusRef = doc(db, 'statuses', itemId);
+    try {
+      await updateDoc(statusRef, {
+        likedBy: item?.hasLiked ? arrayRemove(currentUser.id) : arrayUnion(currentUser.id),
+      });
+    } catch (e) {
+      console.error('Error toggling status like', e);
+    }
   };
 
-  const handleSendStatusReply = (contactId: string, replyText: string, statusItem: StatusItem) => {
-    // Find or create direct conversation with this contact
-    let conv = conversations.find(
-      (c) => c.type === 'direct' && c.members.includes(contactId)
-    );
+  const handleSendStatusReply = async (contactId: string, replyText: string, statusItem: StatusItem) => {
+    if (!currentUser) return;
+    const convId = getDirectConversationId(currentUser.id, contactId);
+    let conv = conversations.find((c) => c.id === convId);
 
     if (!conv) {
       const contact = syncedContacts.find((sc) => sc.sovoUserId === contactId || sc.id === contactId);
       conv = {
-        id: `conv_direct_${contactId}`,
+        id: convId,
         type: 'direct',
-        name: contact?.name || 'S’ovo Contact',
+        name: contact?.name || 'S’ovo User',
         username: contact?.sovoUsername,
-        avatar:
-          contact?.sovoAvatar ||
-          'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=400',
-        members: [currentUser?.id || 'usr_me_001', contactId],
+        avatar: contact?.sovoAvatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(contact?.name || '?')}&background=222230&color=ffd700`,
+        members: [currentUser.id, contactId],
         memberCount: 2,
         maxMembers: 2,
         adminIds: [],
@@ -325,27 +404,33 @@ export default function App() {
         e2eeKeyFingerprint: `SOVO-E2EE-${Date.now().toString(16).toUpperCase()}`,
         createdAt: Date.now(),
       };
-      setConversations((prev) => [conv!, ...prev]);
+      try {
+        await setDoc(doc(db, 'conversations', conv.id), conv);
+      } catch (e) {
+        console.error('Failed to create conversation for status reply', e);
+      }
     }
 
-    // Send reply as message
     const newMsg: Message = {
       id: `msg_${Date.now()}`,
       conversationId: conv.id,
-      senderId: currentUser?.id || 'usr_me_001',
-      senderName: currentUser?.displayName || 'Aurelius Vance',
+      senderId: currentUser.id,
+      senderName: currentUser.displayName,
+      senderAvatar: currentUser.avatarUrl,
       text: `Replied to status: "${statusItem.caption}":\n${replyText}`,
       mediaUrl: statusItem.mediaUrl,
       mediaType: 'image',
       isEncrypted: true,
-      status: 'delivered',
+      status: 'sent',
       timestamp: Date.now(),
     };
 
-    setMessagesMap((prev) => ({
-      ...prev,
-      [conv!.id]: [...(prev[conv!.id] || []), newMsg],
-    }));
+    try {
+      await setDoc(doc(collection(db, 'conversations', conv.id, 'messages'), newMsg.id), newMsg);
+      await setDoc(doc(db, 'conversations', conv.id), { lastMessage: newMsg }, { merge: true });
+    } catch (e) {
+      console.error('Failed to send status reply', e);
+    }
 
     setActiveConversation(conv);
     setActiveTab('chats');
@@ -353,21 +438,21 @@ export default function App() {
 
   const handleStartDirectChatFromContact = async (contact: SyncedContact) => {
     if (!currentUser) return;
-    const existing = conversations.find(
-      (c) => c.type === 'direct' && c.members.includes(contact.sovoUserId || contact.id)
-    );
+    const peerId = contact.sovoUserId || contact.id;
+    const convId = getDirectConversationId(currentUser.id, peerId);
+    const existing = conversations.find((c) => c.id === convId);
 
     if (existing) {
       setActiveConversation(existing);
       setActiveTab('chats');
     } else {
       const newConv: Conversation = {
-        id: `conv_direct_${currentUser.id}_${contact.sovoUserId || contact.id}`,
+        id: convId,
         type: 'direct',
         name: contact.name,
         username: contact.sovoUsername,
-        avatar: contact.sovoAvatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=400',
-        members: [currentUser.id, contact.sovoUserId || contact.id],
+        avatar: contact.sovoAvatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(contact.name)}&background=222230&color=ffd700`,
+        members: [currentUser.id, peerId],
         memberCount: 2,
         maxMembers: 2,
         adminIds: [],
@@ -388,8 +473,12 @@ export default function App() {
     }
   };
 
-  const handleCreateGroup = (newGroup: Conversation) => {
-    setConversations((prev) => [newGroup, ...prev]);
+  const handleCreateGroup = async (newGroup: Conversation) => {
+    try {
+      await setDoc(doc(db, 'conversations', newGroup.id), newGroup);
+    } catch (e) {
+      console.error('Failed to create group', e);
+    }
     setActiveConversation(newGroup);
     setActiveTab('chats');
   };
@@ -406,21 +495,22 @@ export default function App() {
     }
   };
 
-  const handleStartCall = (peerName: string, type: 'audio' | 'video') => {
+  const handleStartCall = (peerId: string, peerName: string, type: 'audio' | 'video') => {
     sound.playTap();
-    setActiveCall({ peerName, type });
+    setActiveCall({ peerId, peerName, type });
   };
 
-  const handleEndCall = () => {
+  const handleEndCall = async () => {
     sound.playTap();
     if (activeCall && currentUser) {
       const newRecord: CallRecord = {
         id: `call_${Date.now()}`,
-        peerId: 'usr_peer',
+        peerId: activeCall.peerId,
         peerName: activeCall.peerName,
-        peerUsername: activeCall.peerName.toLowerCase().replace(/\s+/g, '_'),
+        peerUsername: syncedContacts.find((c) => c.sovoUserId === activeCall.peerId)?.sovoUsername || '',
         peerAvatar:
-          'https://images.unsplash.com/photo-1517841905240-472988babdf9?w=400&auto=format&fit=crop&q=80',
+          syncedContacts.find((c) => c.sovoUserId === activeCall.peerId)?.sovoAvatar ||
+          `https://ui-avatars.com/api/?name=${encodeURIComponent(activeCall.peerName)}&background=222230&color=ffd700`,
         type: activeCall.type,
         direction: 'outgoing',
         status: 'completed',
@@ -428,7 +518,14 @@ export default function App() {
         timestamp: Date.now(),
         isEncrypted: true,
       };
-      setCallsList((prev) => [newRecord, ...prev]);
+      try {
+        await setDoc(doc(db, 'calls', newRecord.id), {
+          ...newRecord,
+          members: [currentUser.id, activeCall.peerId],
+        });
+      } catch (e) {
+        console.error('Failed to save call record', e);
+      }
     }
     setActiveCall(null);
   };
@@ -516,7 +613,10 @@ export default function App() {
               onBack={() => setActiveConversation(null)}
               onSendMessage={handleSendMessage}
               onOpenE2EEModal={handleOpenE2EEFromChat}
-              onStartCall={(type) => handleStartCall(activeConversation.name, type)}
+              onStartCall={(type) => {
+                const peerId = activeConversation.members.find((m) => m !== currentUser.id) || activeConversation.id;
+                handleStartCall(peerId, activeConversation.name, type);
+              }}
               onToggleReaction={(msgId, emoji) => {
                 setMessagesMap((prev) => ({
                   ...prev,
@@ -563,7 +663,7 @@ export default function App() {
                 <CallsView
                   calls={callsList}
                   currentUser={currentUser}
-                  onInitiateCall={(peerName, type) => handleStartCall(peerName, type)}
+                  onInitiateCall={(peerId, peerName, type) => handleStartCall(peerId, peerName, type)}
                 />
               )}
 
@@ -574,9 +674,22 @@ export default function App() {
                   settings={settings}
                   linkedDevices={linkedDevices}
                   onUpdateSettings={(newSet) => setSettings((s) => ({ ...s, ...newSet }))}
-                  onUpdateProfile={(updated) =>
-                    setCurrentUser((u) => (u ? { ...u, ...updated } : null))
-                  }
+                  onUpdateProfile={async (updated) => {
+                    setCurrentUser((u) => (u ? { ...u, ...updated } : null));
+                    try {
+                      await updateDoc(doc(db, 'users', currentUser.id), updated);
+                    } catch (e) {
+                      console.error('Failed to persist profile update', e);
+                    }
+                  }}
+                  onUploadAvatar={async (file) => {
+                    const avatarUrl = await uploadFileToStorage(
+                      `avatars/${currentUser.id}/${Date.now()}_${file.name}`,
+                      file
+                    );
+                    await updateDoc(doc(db, 'users', currentUser.id), { avatarUrl });
+                    setCurrentUser((u) => (u ? { ...u, avatarUrl } : null));
+                  }}
                   onUnlinkDevice={(id) =>
                     setLinkedDevices((devs) => devs.filter((d) => d.id !== id))
                   }
@@ -724,13 +837,12 @@ export default function App() {
         pinCode={currentUser?.pinCode || '7788'}
       />
 
-      {/* Sync Device Address Book & Global Username Discovery Modal */}
+      {/* Discover Real Accounts & Global Username Search Modal */}
       <ContactsSyncModal
         isOpen={showSyncContactsModal}
         onClose={() => setShowSyncContactsModal(false)}
         contacts={syncedContacts}
         onStartDirectChat={handleStartDirectChatFromContact}
-        onSearchGlobalUsername={(usr) => {}}
       />
 
       {/* Create 500-Member Group Modal */}
@@ -738,7 +850,7 @@ export default function App() {
         isOpen={showGroupCreateModal}
         onClose={() => setShowGroupCreateModal(false)}
         contacts={syncedContacts}
-        currentUserId={currentUser?.id || 'usr_me_001'}
+        currentUserId={currentUser.id}
         onCreateGroup={handleCreateGroup}
       />
 

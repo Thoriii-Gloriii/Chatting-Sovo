@@ -23,7 +23,6 @@ interface ContactsSyncModalProps {
   onClose: () => void;
   contacts: SyncedContact[];
   onStartDirectChat: (contact: SyncedContact) => void;
-  onSearchGlobalUsername: (username: string) => void;
 }
 
 export const ContactsSyncModal: React.FC<ContactsSyncModalProps> = ({
@@ -31,29 +30,14 @@ export const ContactsSyncModal: React.FC<ContactsSyncModalProps> = ({
   onClose,
   contacts,
   onStartDirectChat,
-  onSearchGlobalUsername,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
-  const [isSyncing, setIsSyncing] = useState(false);
-  const [syncedSuccess, setSyncedSuccess] = useState(false);
-  const [activeTab, setActiveTab] = useState<'device' | 'username'>('device');
+  const [activeTab, setActiveTab] = useState<'discover' | 'username'>('discover');
   const [globalUsernameInput, setGlobalUsernameInput] = useState('');
   const [globalSearchResult, setGlobalSearchResult] = useState<SyncedContact | null>(null);
+  const [searchAttempted, setSearchAttempted] = useState(false);
 
   if (!isOpen) return null;
-
-  const handleSyncDeviceContacts = () => {
-    setIsSyncing(true);
-    setSyncedSuccess(false);
-    sound.playTap();
-
-    setTimeout(() => {
-      setIsSyncing(false);
-      setSyncedSuccess(true);
-      sound.playBiometricSuccess();
-      setTimeout(() => setSyncedSuccess(false), 3000);
-    }, 1200);
-  };
 
   const handleSearchUsername = (e: React.FormEvent) => {
     e.preventDefault();
@@ -62,33 +46,15 @@ export const ContactsSyncModal: React.FC<ContactsSyncModalProps> = ({
 
     const cleanHandle = globalUsernameInput.trim().replace(/^@/, '').toLowerCase();
     const found = contacts.find((c) => c.sovoUsername?.toLowerCase() === cleanHandle);
-
-    if (found) {
-      setGlobalSearchResult(found);
-    } else {
-      setGlobalSearchResult({
-        id: `usr_${cleanHandle}`,
-        name: `@${cleanHandle}`,
-        phoneNumber: 'Hidden by S’ovo privacy protocol',
-        isRegistered: true,
-        sovoUsername: cleanHandle,
-        sovoAvatar:
-          'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=400&auto=format&fit=crop&q=80',
-        sovoUserId: `usr_${cleanHandle}`,
-        status: 'Encrypted S’ovo member',
-      });
-    }
+    setGlobalSearchResult(found || null);
+    setSearchAttempted(true);
   };
 
   const filteredContacts = contacts.filter(
     (c) =>
       c.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      c.sovoUsername?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      c.phoneNumber.includes(searchTerm)
+      c.sovoUsername?.toLowerCase().includes(searchTerm.toLowerCase())
   );
-
-  const registeredContacts = filteredContacts.filter((c) => c.isRegistered);
-  const unregisteredContacts = filteredContacts.filter((c) => !c.isRegistered);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md">
@@ -132,27 +98,26 @@ export const ContactsSyncModal: React.FC<ContactsSyncModalProps> = ({
         <div className="flex items-start gap-2.5 p-3 rounded-2xl bg-[#121219] border border-[#272635] mb-4 text-xs text-gray-300">
           <ShieldCheck className="w-4 h-4 text-[#ffd700] flex-shrink-0 mt-0.5" />
           <div className="text-[11px] leading-relaxed text-gray-300">
-            <span className="font-semibold text-white">Zero-Knowledge Contact Matching: </span>
-            Your address book phone numbers are transformed into one-way cryptographic hashes before
-            comparing. Numbers are never stored in plaintext on S'ovo servers.
+            <span className="font-semibold text-white">Find real S'ovo accounts: </span>
+            Browse everyone currently registered, or jump straight to someone by their @username.
           </div>
         </div>
 
-        {/* Tab switch: Device address book vs Global @username search */}
+        {/* Tab switch: Discover real accounts vs Global @username search */}
         <div className="grid grid-cols-2 gap-2 p-1 bg-[#14141d] border border-[#2b2a38] rounded-xl mb-4 text-xs font-semibold">
           <button
             type="button"
             onClick={() => {
               sound.playTap();
-              setActiveTab('device');
+              setActiveTab('discover');
             }}
             className={`py-2 rounded-lg transition ${
-              activeTab === 'device'
+              activeTab === 'discover'
                 ? 'bg-[#221c0e] text-[#ffd700] border border-[#d4af37]/40 shadow-sm'
                 : 'text-gray-400 hover:text-white'
             }`}
           >
-            Synced Address Book ({contacts.length})
+            Discover ({contacts.length})
           </button>
 
           <button
@@ -171,9 +136,9 @@ export const ContactsSyncModal: React.FC<ContactsSyncModalProps> = ({
           </button>
         </div>
 
-        {activeTab === 'device' ? (
+        {activeTab === 'discover' ? (
           <>
-            {/* Sync trigger button & Search Bar */}
+            {/* Search Bar */}
             <div className="flex items-center gap-2 mb-4">
               <div className="relative flex-1">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
@@ -181,99 +146,46 @@ export const ContactsSyncModal: React.FC<ContactsSyncModalProps> = ({
                   type="text"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  placeholder="Filter contacts or handles..."
+                  placeholder="Filter people or handles..."
                   className="w-full pl-9 pr-3 py-2 bg-[#12121a] border border-[#2c2b38] focus:border-[#ffd700] rounded-xl text-xs text-white placeholder-gray-500 outline-none"
                 />
               </div>
-
-              <button
-                type="button"
-                onClick={handleSyncDeviceContacts}
-                disabled={isSyncing}
-                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#1c190f] border border-[#d4af37]/40 text-[#ffd700] hover:bg-[#2c2514] transition text-xs font-medium cursor-pointer"
-              >
-                <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
-                <span>{isSyncing ? 'Syncing...' : 'Sync Now'}</span>
-              </button>
             </div>
-
-            {syncedSuccess && (
-              <div className="mb-3 p-2.5 rounded-xl bg-emerald-950/40 border border-emerald-800/40 text-emerald-300 text-xs flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                <span>Contacts synchronized securely with private hash matching.</span>
-              </div>
-            )}
 
             {/* Contacts Scrollable List */}
             <div className="flex-1 overflow-y-auto space-y-4 pr-1 scrollbar-thin">
-              {/* Registered on S'ovo */}
               <div>
                 <p className="text-[11px] font-bold uppercase tracking-wider text-[#d4af37] mb-2 flex items-center gap-1">
-                  <Sparkles className="w-3 h-3" /> Found on S'ovo ({registeredContacts.length})
+                  <Sparkles className="w-3 h-3" /> On S'ovo ({filteredContacts.length})
                 </p>
 
-                <div className="space-y-1.5">
-                  {registeredContacts.map((contact) => (
-                    <div
-                      key={contact.id}
-                      className="p-2.5 rounded-2xl bg-[#111117] hover:bg-[#181822] border border-[#24232f] hover:border-[#d4af37]/40 transition flex items-center justify-between"
-                    >
-                      <div className="flex items-center gap-3">
-                        <img
-                          src={contact.sovoAvatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100'}
-                          alt={contact.name}
-                          className="w-10 h-10 rounded-full object-cover border border-[#d4af37]/50"
-                        />
-                        <div>
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-xs font-semibold text-white">{contact.name}</span>
-                            <span className="text-[11px] font-mono text-[#ffd700]">
-                              @{contact.sovoUsername}
-                            </span>
-                          </div>
-                          <p className="text-[10px] text-gray-400 truncate max-w-[200px]">
-                            {contact.status || 'End-to-End Encrypted'}
-                          </p>
-                        </div>
-                      </div>
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          sound.playTap();
-                          onStartDirectChat(contact);
-                          onClose();
-                        }}
-                        className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-gradient-to-r from-[#2a220f] to-[#17140b] border border-[#d4af37]/60 text-[#ffd700] text-xs font-semibold hover:border-[#ffd700] cursor-pointer active:scale-95"
-                      >
-                        <MessageSquare className="w-3.5 h-3.5" />
-                        <span>Chat</span>
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Unregistered */}
-              {unregisteredContacts.length > 0 && (
-                <div>
-                  <p className="text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-2">
-                    Invite to Encrypted S'ovo ({unregisteredContacts.length})
+                {filteredContacts.length === 0 ? (
+                  <p className="text-xs text-gray-500 py-6 text-center">
+                    No one else has signed up yet — invite a friend!
                   </p>
-
+                ) : (
                   <div className="space-y-1.5">
-                    {unregisteredContacts.map((contact) => (
+                    {filteredContacts.map((contact) => (
                       <div
                         key={contact.id}
-                        className="p-2.5 rounded-2xl bg-[#0e0e14] border border-[#201f2b] flex items-center justify-between opacity-80 hover:opacity-100 transition"
+                        className="p-2.5 rounded-2xl bg-[#111117] hover:bg-[#181822] border border-[#24232f] hover:border-[#d4af37]/40 transition flex items-center justify-between"
                       >
                         <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-full bg-[#181822] text-gray-400 font-bold flex items-center justify-center text-xs">
-                            {contact.name.charAt(0)}
-                          </div>
+                          <img
+                            src={contact.sovoAvatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100'}
+                            alt={contact.name}
+                            className="w-10 h-10 rounded-full object-cover border border-[#d4af37]/50"
+                          />
                           <div>
-                            <span className="text-xs font-semibold text-gray-200">{contact.name}</span>
-                            <p className="text-[10px] text-gray-500">{contact.phoneNumber}</p>
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-xs font-semibold text-white">{contact.name}</span>
+                              <span className="text-[11px] font-mono text-[#ffd700]">
+                                @{contact.sovoUsername}
+                              </span>
+                            </div>
+                            <p className="text-[10px] text-gray-400 truncate max-w-[200px]">
+                              {contact.status || 'S\u2019ovo member'}
+                            </p>
                           </div>
                         </div>
 
@@ -281,18 +193,19 @@ export const ContactsSyncModal: React.FC<ContactsSyncModalProps> = ({
                           type="button"
                           onClick={() => {
                             sound.playTap();
-                            alert(`Invitation link for S'ovo created for ${contact.name}!`);
+                            onStartDirectChat(contact);
+                            onClose();
                           }}
-                          className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-[#14141c] hover:bg-[#1f1e28] text-gray-300 text-[11px] font-medium border border-[#2b2a36] cursor-pointer"
+                          className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-gradient-to-r from-[#2a220f] to-[#17140b] border border-[#d4af37]/60 text-[#ffd700] text-xs font-semibold hover:border-[#ffd700] cursor-pointer active:scale-95"
                         >
-                          <Share2 className="w-3 h-3" />
-                          <span>Invite</span>
+                          <MessageSquare className="w-3.5 h-3.5" />
+                          <span>Chat</span>
                         </button>
                       </div>
                     ))}
                   </div>
-                </div>
-              )}
+                )}
+              </div>
             </div>
           </>
         ) : (
@@ -308,7 +221,11 @@ export const ContactsSyncModal: React.FC<ContactsSyncModalProps> = ({
                   <input
                     type="text"
                     value={globalUsernameInput}
-                    onChange={(e) => setGlobalUsernameInput(e.target.value)}
+                    onChange={(e) => {
+                      setGlobalUsernameInput(e.target.value);
+                      setSearchAttempted(false);
+                      setGlobalSearchResult(null);
+                    }}
                     placeholder="e.g. elena_r or thorne_x"
                     className="w-full pl-10 pr-4 py-2.5 bg-[#12121a] border border-[#2c2b38] focus:border-[#ffd700] rounded-xl text-xs text-white placeholder-gray-500 outline-none"
                   />
@@ -360,6 +277,12 @@ export const ContactsSyncModal: React.FC<ContactsSyncModalProps> = ({
                   <span>Start Chat</span>
                 </button>
               </div>
+            )}
+
+            {searchAttempted && !globalSearchResult && (
+              <p className="text-xs text-gray-500 text-center py-4">
+                No S'ovo account found with that username.
+              </p>
             )}
           </div>
         )}

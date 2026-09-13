@@ -22,10 +22,7 @@ export const GroupCreateModal: React.FC<GroupCreateModalProps> = ({
 }) => {
   const [groupName, setGroupName] = useState('');
   const [description, setDescription] = useState('');
-  const [selectedContactIds, setSelectedContactIds] = useState<string[]>([
-    'usr_002',
-    'usr_003',
-  ]);
+  const [selectedContactIds, setSelectedContactIds] = useState<string[]>([]);
   const [groupAvatar, setGroupAvatar] = useState(
     'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=400&auto=format&fit=crop&q=80'
   );

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { User, UserSettings, LinkedDevice } from '../types';
 import {
   ShieldCheck,
@@ -24,8 +24,10 @@ import {
   Volume2,
   Sliders,
   AtSign,
+  Camera,
 } from 'lucide-react';
 import { sound } from '../lib/sound';
+import { validateImageFile } from '../lib/upload';
 
 interface SettingsViewProps {
   currentUser: User;
@@ -33,6 +35,7 @@ interface SettingsViewProps {
   linkedDevices: LinkedDevice[];
   onUpdateSettings: (newSettings: Partial<UserSettings>) => void;
   onUpdateProfile: (updated: Partial<User>) => void;
+  onUploadAvatar: (file: File) => Promise<void>;
   onUnlinkDevice: (deviceId: string) => void;
   onSignOut: () => void;
   onOpenE2EEKeys: () => void;
@@ -44,6 +47,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   linkedDevices,
   onUpdateSettings,
   onUpdateProfile,
+  onUploadAvatar,
   onUnlinkDevice,
   onSignOut,
   onOpenE2EEKeys,
@@ -51,6 +55,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [showQrLinkModal, setShowQrLinkModal] = useState(false);
   const [isEditingUsername, setIsEditingUsername] = useState(false);
   const [newUsername, setNewUsername] = useState(currentUser.username);
+  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
+  const [avatarError, setAvatarError] = useState('');
+  const avatarInputRef = useRef<HTMLInputElement>(null);
 
   const handleSaveUsername = (e: React.FormEvent) => {
     e.preventDefault();
@@ -58,6 +65,29 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     sound.playTap();
     onUpdateProfile({ username: newUsername.trim().toLowerCase().replace(/[^a-z0-9_]/g, '') });
     setIsEditingUsername(false);
+  };
+
+  const handleAvatarFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const error = validateImageFile(file);
+    if (error) {
+      setAvatarError(error);
+      e.target.value = '';
+      return;
+    }
+    setAvatarError('');
+    setIsUploadingAvatar(true);
+    sound.playTap();
+    try {
+      await onUploadAvatar(file);
+      sound.playBiometricSuccess();
+    } catch (err: any) {
+      setAvatarError(err?.message || 'Failed to update profile picture.');
+    } finally {
+      setIsUploadingAvatar(false);
+      e.target.value = '';
+    }
   };
 
   return (
@@ -85,11 +115,36 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         {/* User Identity Profile Card */}
         <div className="p-4 rounded-3xl bg-[#0e0e14] border border-[#272635] flex items-center justify-between">
           <div className="flex items-center gap-3.5">
-            <img
-              src={currentUser.avatarUrl}
-              alt={currentUser.displayName}
-              className="w-14 h-14 rounded-full object-cover border-2 border-[#d4af37] shadow-lg"
-            />
+            <div className="relative flex-shrink-0">
+              <img
+                src={currentUser.avatarUrl}
+                alt={currentUser.displayName}
+                className="w-14 h-14 rounded-full object-cover border-2 border-[#d4af37] shadow-lg"
+              />
+              <input
+                ref={avatarInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={handleAvatarFileChange}
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  sound.playTap();
+                  avatarInputRef.current?.click();
+                }}
+                disabled={isUploadingAvatar}
+                className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full gold-gradient-bg text-black flex items-center justify-center border-2 border-[#0e0e14] cursor-pointer active:scale-90 transition"
+                title="Change profile picture"
+              >
+                {isUploadingAvatar ? (
+                  <div className="w-3 h-3 border-2 border-black border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  <Camera className="w-3 h-3" />
+                )}
+              </button>
+            </div>
             <div>
               <h3 className="text-base font-bold text-white">{currentUser.displayName}</h3>
               <div className="flex items-center gap-1 text-xs font-mono text-[#ffd700] mt-0.5">
@@ -97,6 +152,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 <span>{currentUser.username}</span>
               </div>
               <p className="text-[11px] text-gray-400 mt-1">{currentUser.bio}</p>
+              {avatarError && <p className="text-[10px] text-red-400 mt-1">{avatarError}</p>}
             </div>
           </div>
 

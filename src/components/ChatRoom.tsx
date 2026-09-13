@@ -1,4 +1,5 @@
 import { db, collection, query, orderBy, onSnapshot } from '../lib/firebase';
+import { uploadFileToStorage } from '../lib/upload';
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Conversation, Message, User, UserSettings, MediaType } from '../types';
@@ -87,6 +88,10 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const recordedChunksRef = useRef<Blob[]>([]);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+  const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -113,14 +118,15 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
     setInputText('');
   };
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // S'ovo supports up to 2GB file sharing
-    const maxBytes = 2 * 1024 * 1024 * 1024; // 2GB
+    // Real uploads go to Firebase Storage, so keep this within a sane free-tier limit.
+    const maxBytes = 25 * 1024 * 1024; // 25MB
     if (file.size > maxBytes) {
-      alert('File exceeds 2GB maximum encrypted transfer ceiling.');
+      alert('File exceeds the 25MB sharing limit.');
+      e.target.value = '';
       return;
     }
 
@@ -137,56 +143,121 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
     if (isImage) mediaType = 'image';
     else if (isVideo) mediaType = 'video';
     else if (isAudio) mediaType = 'audio';
-    else if (file.size > 50 * 1024 * 1024) mediaType = 'encrypted_file';
+    else if (file.size > 15 * 1024 * 1024) mediaType = 'encrypted_file';
 
-    // Simulate fast 2GB chunked encryption upload
-    const interval = setInterval(() => {
-      setUploadProgress((prev) => {
-        if (!prev || prev >= 100) {
-          clearInterval(interval);
-          setTimeout(() => {
-            setUploadProgress(null);
-            sound.playSend();
-            onSendMessage('', {
-              url: URL.createObjectURL(file),
-              type: mediaType,
-              fileName: file.name,
-              fileSize: formattedSize,
-              fileSizeBytes: file.size,
-            });
-          }, 300);
-          return 100;
-        }
-        return prev + 25;
+    try {
+      setUploadProgress(40);
+      const url = await uploadFileToStorage(
+        `chat-media/${conversation.id}/${Date.now()}_${file.name}`,
+        file
+      );
+      setUploadProgress(100);
+      sound.playSend();
+      onSendMessage('', {
+        url,
+        type: mediaType,
+        fileName: file.name,
+        fileSize: formattedSize,
+        fileSizeBytes: file.size,
       });
-    }, 150);
+    } catch (err) {
+      console.error('File upload failed', err);
+      alert('Failed to upload file. Please try again.');
+    } finally {
+      setUploadProgress(null);
+      e.target.value = '';
+    }
+  };
+
+  const handleStartVoiceRecord = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaStreamRef.current = stream;
+      recordedChunksRef.current = [];
+      const recorder = new MediaRecorder(stream);
+      recorder.ondataavailable = (ev) => {
+        if (ev.data.size > 0) recordedChunksRef.current.push(ev.data);
+      };
+      mediaRecorderRef.current = recorder;
+      recorder.start();
+      sound.playTap();
+      setIsRecordingVoice(true);
+    } catch (err) {
+      console.error('Microphone access failed', err);
+      alert('Could not access the microphone. Check your browser/app permissions.');
+    }
+  };
+
+  const stopRecordingStream = () => {
+    mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
+    mediaStreamRef.current = null;
   };
 
   const handleFinishVoiceRecord = () => {
-    if (recordSeconds < 1) {
+    const recorder = mediaRecorderRef.current;
+    if (!recorder || recordSeconds < 1) {
+      stopRecordingStream();
       setIsRecordingVoice(false);
       return;
     }
-    setIsRecordingVoice(false);
-    sound.playSend();
-
-    onSendMessage('', {
-      type: 'voice_note',
-      fileName: `Encrypted_Voice_${Date.now().toString().slice(-4)}.m4a`,
-      fileSize: `${(recordSeconds * 0.12).toFixed(1)} MB`,
-      duration: recordSeconds,
-    });
+    recorder.onstop = async () => {
+      stopRecordingStream();
+      const blob = new Blob(recordedChunksRef.current, { type: recorder.mimeType || 'audio/webm' });
+      setIsRecordingVoice(false);
+      setUploadProgress(50);
+      try {
+        const url = await uploadFileToStorage(
+          `chat-media/${conversation.id}/${Date.now()}_voice.webm`,
+          blob
+        );
+        sound.playSend();
+        onSendMessage('', {
+          url,
+          type: 'voice_note',
+          fileName: `Voice_${Date.now().toString().slice(-4)}.webm`,
+          fileSize: formatFileSize(blob.size),
+          fileSizeBytes: blob.size,
+          duration: recordSeconds,
+        });
+      } catch (err) {
+        console.error('Voice note upload failed', err);
+        alert('Failed to send voice note. Please try again.');
+      } finally {
+        setUploadProgress(null);
+      }
+    };
+    recorder.stop();
   };
 
   const handleCancelVoiceRecord = () => {
     sound.playTap();
+    mediaRecorderRef.current?.stop();
+    stopRecordingStream();
     setIsRecordingVoice(false);
-    setRecordSeconds(0);
   };
 
-  const toggleAudioPlay = (msgId: string) => {
+  const toggleAudioPlay = (msgId: string, url?: string) => {
     sound.playTap();
-    setPlayingAudioId((prev) => (prev === msgId ? null : msgId));
+    if (playingAudioId === msgId) {
+      audioPlayerRef.current?.pause();
+      setPlayingAudioId(null);
+      return;
+    }
+    if (!url) return;
+    if (!audioPlayerRef.current) {
+      audioPlayerRef.current = new Audio();
+      audioPlayerRef.current.onended = () => setPlayingAudioId(null);
+    }
+    audioPlayerRef.current.src = url;
+    audioPlayerRef.current.play().catch((err) => console.error('Audio playback failed', err));
+    setPlayingAudioId(msgId);
+  };
+
+  const formatAudioDuration = (seconds?: number) => {
+    const total = seconds || 0;
+    const m = Math.floor(total / 60);
+    const s = total % 60;
+    return `${m}:${s.toString().padStart(2, '0')}`;
   };
 
   return (
@@ -403,7 +474,7 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
                   <div className="flex items-center gap-2.5 p-2 rounded-xl bg-[#09090e] border border-[#272635] mb-1.5 min-w-[200px]">
                     <button
                       type="button"
-                      onClick={() => toggleAudioPlay(msg.id)}
+                      onClick={() => toggleAudioPlay(msg.id, msg.mediaUrl)}
                       className="w-8 h-8 rounded-full gold-gradient-bg text-black flex items-center justify-center cursor-pointer shadow flex-shrink-0"
                     >
                       {playingAudioId === msg.id ? (
@@ -431,7 +502,7 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
                     </div>
 
                     <span className="text-[10px] font-mono text-gray-400">
-                      0:0{msg.audioDurationSeconds || 8}
+                      {formatAudioDuration(msg.audioDurationSeconds)}
                     </span>
                   </div>
                 )}
@@ -609,12 +680,9 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
             ) : (
               <button
                 type="button"
-                onClick={() => {
-                  sound.playTap();
-                  setIsRecordingVoice(true);
-                }}
+                onClick={handleStartVoiceRecord}
                 className="w-11 h-11 rounded-2xl bg-[#18160e] border border-[#d4af37]/40 text-[#ffd700] hover:bg-[#282214] flex items-center justify-center shadow transition active:scale-95 cursor-pointer"
-                title="Record Encrypted Voice Note"
+                title="Record Voice Note"
               >
                 <Mic className="w-4 h-4" />
               </button>
