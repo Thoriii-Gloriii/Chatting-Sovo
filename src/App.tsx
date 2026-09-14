@@ -25,7 +25,7 @@ import { SettingsView } from './components/SettingsView';
 import { ContactsSyncModal } from './components/ContactsSyncModal';
 import { GroupCreateModal } from './components/GroupCreateModal';
 import { E2EEVerificationModal } from './components/E2EEVerificationModal';
-import { AndroidStatusBar, AndroidNavigationBar } from './components/AndroidSystemBar';
+import { AndroidNavigationBar } from './components/AndroidSystemBar';
 import { sound } from './lib/sound';
 import {
   MessageSquare,
@@ -552,16 +552,15 @@ export default function App() {
 
   return (
     <div
-      className="min-h-screen w-full bg-[#030305] text-[#f4f4f6] flex flex-col items-center justify-center p-0 sm:py-6 selection:bg-[#d4af37]/30 selection:text-[#f3e5ab]"
+      className="min-h-screen w-full bg-[#030305] text-[#f4f4f6] flex flex-col items-center justify-center p-0 selection:bg-[#d4af37]/30 selection:text-[#f3e5ab]"
       id="sovo-app-root"
+      style={{ zoom: '0.95' }}
     >
-      {/* Strictly Android Flagship Frame (Pixel 9 Pro / Galaxy S25 Ultra Form Factor) */}
+      {/* Full-screen app container */}
       <div
-        className="w-full sm:max-w-md sm:rounded-[38px] sm:border-[5px] sm:border-[#1e1d28] sm:shadow-[0_25px_80px_rgba(0,0,0,0.9),0_0_40px_rgba(212,175,55,0.12)] overflow-hidden flex flex-col bg-[#07070b] min-h-screen sm:min-h-[890px] sm:max-h-[92vh] relative"
+        className="w-full overflow-hidden flex flex-col bg-[#07070b] min-h-screen relative"
         id="android-device-chassis"
       >
-        {/* Android Top System Bar (Clock, Notification Badges, Punch Hole Camera, 5G/Wi-Fi/Battery) */}
-        <AndroidStatusBar />
 
         {/* Material 3 Top App Bar */}
         <header className="h-15 px-4 bg-[#09090e]/95 backdrop-blur-md border-b border-[#1c1b24] flex items-center justify-between sticky top-0 z-40">

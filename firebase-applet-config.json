@@ -1,9 +1,10 @@
 {
   "projectId": "fir-ovo",
-  "appId": "1:480015860775:android:a4fb54821749689e557a02",
-  "apiKey": "AIzaSyBdxWk7fQF6qm3vrk9xWVd8w8kJMfGSO_E",
+  "appId": "1:480015860775:web:8549bde08fd5bf69557a02",
+  "apiKey": "AIzaSyB7Ensh6DFhtTxuowMyYqZqmds7IBhUblE",
   "authDomain": "fir-ovo.firebaseapp.com",
   "storageBucket": "fir-ovo.firebasestorage.app",
   "messagingSenderId": "480015860775",
+  "measurementId": "G-2VJYZ8KYJ1",
   "oAuthClientId": "480015860775-kmnqqneo9ceafsfu724rpfcq2444bskt.apps.googleusercontent.com"
 }

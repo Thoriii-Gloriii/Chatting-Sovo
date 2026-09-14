@@ -1,10 +1,10 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { motion } from "motion/react";
 import { SovoLogo } from "./SovoLogo";
 import { User } from "../types";
 import { Lock, Eye, EyeOff, ArrowRight, Fingerprint, Phone } from "lucide-react";
 import { sound } from "../lib/sound";
-import { auth, db, doc, setDoc, createUserWithEmailAndPassword, signInWithEmailAndPassword, signInWithPopup, googleProvider, updateProfile, getDoc } from "../lib/firebase";
+import { auth, db, doc, setDoc, createUserWithEmailAndPassword, signInWithEmailAndPassword, signInWithRedirect, getRedirectResult, googleProvider, updateProfile, getDoc } from "../lib/firebase";
 
 interface AuthLandingProps {
   onAuthenticate: (user: User) => void;
@@ -91,54 +91,59 @@ export const AuthLanding: React.FC<AuthLandingProps> = ({ onAuthenticate }) => {
     }
   };
 
+  // On mount: check if we're returning from a Google redirect sign-in
+  useEffect(() => {
+    setIsSubmitting(true);
+    getRedirectResult(auth)
+      .then(async (result) => {
+        if (!result) return;
+        const fbUser = result.user;
+        const userDoc = await getDoc(doc(db, "users", fbUser.uid));
+        let appUser: User;
+        if (userDoc.exists()) {
+          appUser = userDoc.data() as User;
+        } else {
+          const fallbackName = fbUser.displayName || fbUser.email?.split("@")[0] || "S'ovo User";
+          appUser = {
+            id: fbUser.uid,
+            username: (fbUser.email?.split("@")[0] || fbUser.uid).toLowerCase().replace(/[^a-z0-9_]/g, "_"),
+            displayName: fallbackName,
+            phoneNumber: fbUser.phoneNumber || "",
+            avatarUrl: fbUser.photoURL || `https://ui-avatars.com/api/?name=${encodeURIComponent(fallbackName)}&background=222230&color=ffd700`,
+            bio: "Hey there! I am using S'ovo.",
+            isOnline: true,
+            lastSeen: Date.now(),
+            joinedAt: new Date().toISOString(),
+            devicesCount: 1,
+            biometricEnabled: false,
+            pinCode: "0000",
+            e2eePublicKey: "GEN_KEY",
+            e2eeFingerprint: "SOVO-E2EE-GEN",
+          };
+          await setDoc(doc(db, "users", fbUser.uid), appUser);
+        }
+        sound.playBiometricSuccess();
+        onAuthenticate(appUser);
+      })
+      .catch((err) => {
+        if (err.code !== "auth/no-current-user") {
+          setErrorMsg(err.message || "Google sign-in failed.");
+        }
+      })
+      .finally(() => setIsSubmitting(false));
+  }, []);
+
   const handleGoogleSignIn = async () => {
     sound.playTap();
     setErrorMsg("");
     setIsSubmitting(true);
     try {
-      const result = await signInWithPopup(auth, googleProvider);
-      const fbUser = result.user;
-
-      // Check if the user already has a Firestore profile
-      const userDoc = await getDoc(doc(db, "users", fbUser.uid));
-      let appUser: User;
-
-      if (userDoc.exists()) {
-        appUser = userDoc.data() as User;
-      } else {
-        // First time signing in with Google — create their profile
-        const fallbackName = fbUser.displayName || fbUser.email?.split("@")[0] || "S'ovo User";
-        appUser = {
-          id: fbUser.uid,
-          username: (fbUser.email?.split("@")[0] || fbUser.uid).toLowerCase().replace(/[^a-z0-9_]/g, "_"),
-          displayName: fallbackName,
-          phoneNumber: fbUser.phoneNumber || "",
-          avatarUrl: fbUser.photoURL || `https://ui-avatars.com/api/?name=${encodeURIComponent(fallbackName)}&background=222230&color=ffd700`,
-          bio: "Hey there! I am using S'ovo.",
-          isOnline: true,
-          lastSeen: Date.now(),
-          joinedAt: new Date().toISOString(),
-          devicesCount: 1,
-          biometricEnabled: false,
-          pinCode: "0000",
-          e2eePublicKey: "GEN_KEY",
-          e2eeFingerprint: "SOVO-E2EE-GEN",
-        };
-        await setDoc(doc(db, "users", fbUser.uid), appUser);
-      }
-
-      sound.playBiometricSuccess();
-      onAuthenticate(appUser);
+      // Opens Google account picker inside the WebView — stays inside the app
+      await signInWithRedirect(auth, googleProvider);
+      // After redirect, the page reloads and the useEffect above handles the result
     } catch (err: any) {
       console.error("Google sign-in error:", err);
-      if (err.code === "auth/popup-closed-by-user") {
-        setErrorMsg("Sign-in was cancelled.");
-      } else if (err.code === "auth/popup-blocked") {
-        setErrorMsg("Popup was blocked by your browser. Please allow popups for this site.");
-      } else {
-        setErrorMsg(err.message || "Google sign-in failed.");
-      }
-    } finally {
+      setErrorMsg(err.message || "Google sign-in failed.");
       setIsSubmitting(false);
     }
   };

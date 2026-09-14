@@ -6,7 +6,8 @@ import {
 } from 'firebase/firestore';
 import {
   getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword,
-  signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged, updateProfile,
+  signInWithPopup, signInWithRedirect, getRedirectResult, GoogleAuthProvider,
+  signOut, onAuthStateChanged, updateProfile,
 } from 'firebase/auth';
 import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import firebaseConfig from '../../firebase-applet-config.json';
@@ -24,5 +25,5 @@ export {
   arrayUnion, arrayRemove, increment,
   ref, uploadBytes, getDownloadURL,
   createUserWithEmailAndPassword, signInWithEmailAndPassword,
-  signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged, updateProfile,
+  signInWithPopup, signInWithRedirect, getRedirectResult, GoogleAuthProvider, signOut, onAuthStateChanged, updateProfile,
 };
