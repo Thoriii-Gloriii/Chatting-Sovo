@@ -9,8 +9,10 @@ const config: CapacitorConfig = {
     backgroundColor: '#07070b',
   },
   plugins: {
-    SplashScreen: {
-      launchShowDuration: 0,
+    GoogleAuth: {
+      scopes: ['profile', 'email'],
+      serverClientId: '480015860775-kmnqqneo9ceafsfu724rpfcq2444bskt.apps.googleusercontent.com',
+      forceCodeForRefreshToken: true,
     },
   },
   server: {

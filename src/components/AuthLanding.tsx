@@ -4,7 +4,9 @@ import { SovoLogo } from "./SovoLogo";
 import { User } from "../types";
 import { Lock, Eye, EyeOff, ArrowRight, Fingerprint, Phone } from "lucide-react";
 import { sound } from "../lib/sound";
-import { auth, db, doc, setDoc, createUserWithEmailAndPassword, signInWithEmailAndPassword, signInWithRedirect, getRedirectResult, googleProvider, updateProfile, getDoc } from "../lib/firebase";
+import { auth, db, doc, setDoc, createUserWithEmailAndPassword, signInWithEmailAndPassword, signInWithRedirect, getRedirectResult, signInWithPopup, signInWithCredential, googleProvider, GoogleAuthProvider, updateProfile, getDoc } from "../lib/firebase";
+import { Capacitor } from '@capacitor/core';
+import { GoogleAuth } from '@codetrix-studio/capacitor-google-auth';
 
 interface AuthLandingProps {
   onAuthenticate: (user: User) => void;
@@ -138,12 +140,61 @@ export const AuthLanding: React.FC<AuthLandingProps> = ({ onAuthenticate }) => {
     setErrorMsg("");
     setIsSubmitting(true);
     try {
-      // Opens Google account picker inside the WebView — stays inside the app
-      await signInWithRedirect(auth, googleProvider);
-      // After redirect, the page reloads and the useEffect above handles the result
+      let fbUser;
+
+      if (Capacitor.isNativePlatform()) {
+        // --- Android APK: use native Google Sign-In (no browser redirect) ---
+        await GoogleAuth.initialize({
+          clientId: '480015860775-kmnqqneo9ceafsfu724rpfcq2444bskt.apps.googleusercontent.com',
+          scopes: ['profile', 'email'],
+          grantOfflineAccess: true,
+        });
+        const googleUser = await GoogleAuth.signIn();
+        const idToken = googleUser.authentication.idToken;
+        const credential = GoogleAuthProvider.credential(idToken);
+        const result = await signInWithCredential(auth, credential);
+        fbUser = result.user;
+      } else {
+        // --- Web: use signInWithPopup (instant popup, no redirect) ---
+        const result = await signInWithPopup(auth, googleProvider);
+        fbUser = result.user;
+      }
+
+      // Load or create Firestore profile
+      const userDoc = await getDoc(doc(db, "users", fbUser.uid));
+      let appUser: User;
+      if (userDoc.exists()) {
+        appUser = userDoc.data() as User;
+      } else {
+        const fallbackName = fbUser.displayName || fbUser.email?.split("@")[0] || "S'ovo User";
+        appUser = {
+          id: fbUser.uid,
+          username: (fbUser.email?.split("@")[0] || fbUser.uid).toLowerCase().replace(/[^a-z0-9_]/g, "_"),
+          displayName: fallbackName,
+          phoneNumber: fbUser.phoneNumber || "",
+          avatarUrl: fbUser.photoURL || `https://ui-avatars.com/api/?name=${encodeURIComponent(fallbackName)}&background=222230&color=ffd700`,
+          bio: "Hey there! I am using S'ovo.",
+          isOnline: true,
+          lastSeen: Date.now(),
+          joinedAt: new Date().toISOString(),
+          devicesCount: 1,
+          biometricEnabled: false,
+          pinCode: "0000",
+          e2eePublicKey: "GEN_KEY",
+          e2eeFingerprint: "SOVO-E2EE-GEN",
+        };
+        await setDoc(doc(db, "users", fbUser.uid), appUser);
+      }
+      sound.playBiometricSuccess();
+      onAuthenticate(appUser);
     } catch (err: any) {
       console.error("Google sign-in error:", err);
-      setErrorMsg(err.message || "Google sign-in failed.");
+      if (err.code === "auth/popup-closed-by-user" || err.message?.includes("cancelled")) {
+        setErrorMsg("Sign-in was cancelled.");
+      } else {
+        setErrorMsg(err.message || "Google sign-in failed.");
+      }
+    } finally {
       setIsSubmitting(false);
     }
   };
