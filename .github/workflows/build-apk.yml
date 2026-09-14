@@ -35,23 +35,10 @@ jobs:
 
       - name: Print debug keystore SHA-1 (for Firebase Console)
         run: |
-          mkdir -p ~/.android
-          if [ ! -f ~/.android/debug.keystore ]; then
-            keytool -genkey -v -keystore ~/.android/debug.keystore \
-              -storepass android -alias androiddebugkey -keypass android \
-              -keyalg RSA -keysize 2048 -validity 10000 \
-              -dname "CN=Android Debug,O=Android,C=US"
-          fi
-          echo "=== SHA-1 for Firebase Console ==="
-          keytool -list -v -keystore ~/.android/debug.keystore \
+          echo "=== SHA-1 / SHA-256 for Firebase Console ==="
+          keytool -list -v -keystore android/keystore/debug.keystore \
             -alias androiddebugkey -storepass android -keypass android \
-            | grep "SHA1:"
-
-      - name: Upload Debug Keystore Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: debug-keystore
-          path: ~/.android/debug.keystore
+            | grep -E "SHA1:|SHA256:"
 
       - name: Sync Capacitor
         run: |
