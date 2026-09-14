@@ -188,12 +188,10 @@ export const AuthLanding: React.FC<AuthLandingProps> = ({ onAuthenticate }) => {
       sound.playBiometricSuccess();
       onAuthenticate(appUser);
     } catch (err: any) {
-      console.error("Google sign-in error:", err);
-      if (err.code === "auth/popup-closed-by-user" || err.message?.includes("cancelled")) {
-        setErrorMsg("Sign-in was cancelled.");
-      } else {
-        setErrorMsg(err.message || "Google sign-in failed.");
-      }
+      console.error("Google sign-in error:", JSON.stringify(err));
+      const errCode = err?.code || err?.errorCode || "unknown";
+      const errMsg = err?.message || err?.errorMessage || JSON.stringify(err);
+      setErrorMsg(`Sign-in failed [${errCode}]: ${errMsg}`);
     } finally {
       setIsSubmitting(false);
     }
