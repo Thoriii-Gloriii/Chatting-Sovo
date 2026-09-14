@@ -4,6 +4,19 @@ on:
   push:
     branches: ["main"]
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "If set, also publish a separate named release at this tag (in addition to updating 'latest')"
+        required: false
+        default: ""
+      release_name:
+        description: "Title for that named release"
+        required: false
+        default: ""
+      release_notes:
+        description: "Body text for that named release"
+        required: false
+        default: ""
 
 permissions:
   contents: write
@@ -66,3 +79,14 @@ jobs:
           artifacts: "android/app/build/outputs/apk/debug/app-debug.apk"
           token: ${{ secrets.GITHUB_TOKEN }}
           body: "Direct download link for the latest APK."
+
+      - name: Publish Named Release
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag != '' }}
+        uses: ncipollo/release-action@v1
+        with:
+          name: ${{ inputs.release_name }}
+          tag: ${{ inputs.release_tag }}
+          allowUpdates: true
+          artifacts: "android/app/build/outputs/apk/debug/app-debug.apk"
+          token: ${{ secrets.GITHUB_TOKEN }}
+          body: ${{ inputs.release_notes }}
