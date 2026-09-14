@@ -47,6 +47,12 @@ jobs:
             -alias androiddebugkey -storepass android -keypass android \
             | grep "SHA1:"
 
+      - name: Upload Debug Keystore Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-keystore
+          path: ~/.android/debug.keystore
+
       - name: Sync Capacitor
         run: |
           npx cap sync android
