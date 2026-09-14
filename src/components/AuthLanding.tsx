@@ -4,7 +4,7 @@ import { SovoLogo } from "./SovoLogo";
 import { User } from "../types";
 import { Lock, Eye, EyeOff, ArrowRight, Fingerprint, Phone } from "lucide-react";
 import { sound } from "../lib/sound";
-import { auth, db, doc, setDoc, createUserWithEmailAndPassword, signInWithEmailAndPassword, updateProfile, getDoc } from "../lib/firebase";
+import { auth, db, doc, setDoc, createUserWithEmailAndPassword, signInWithEmailAndPassword, signInWithPopup, googleProvider, updateProfile, getDoc } from "../lib/firebase";
 
 interface AuthLandingProps {
   onAuthenticate: (user: User) => void;
@@ -86,6 +86,58 @@ export const AuthLanding: React.FC<AuthLandingProps> = ({ onAuthenticate }) => {
     } catch (err: any) {
       console.error("Auth error:", err);
       setErrorMsg(err.message || "An error occurred during authentication.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleGoogleSignIn = async () => {
+    sound.playTap();
+    setErrorMsg("");
+    setIsSubmitting(true);
+    try {
+      const result = await signInWithPopup(auth, googleProvider);
+      const fbUser = result.user;
+
+      // Check if the user already has a Firestore profile
+      const userDoc = await getDoc(doc(db, "users", fbUser.uid));
+      let appUser: User;
+
+      if (userDoc.exists()) {
+        appUser = userDoc.data() as User;
+      } else {
+        // First time signing in with Google — create their profile
+        const fallbackName = fbUser.displayName || fbUser.email?.split("@")[0] || "S'ovo User";
+        appUser = {
+          id: fbUser.uid,
+          username: (fbUser.email?.split("@")[0] || fbUser.uid).toLowerCase().replace(/[^a-z0-9_]/g, "_"),
+          displayName: fallbackName,
+          phoneNumber: fbUser.phoneNumber || "",
+          avatarUrl: fbUser.photoURL || `https://ui-avatars.com/api/?name=${encodeURIComponent(fallbackName)}&background=222230&color=ffd700`,
+          bio: "Hey there! I am using S'ovo.",
+          isOnline: true,
+          lastSeen: Date.now(),
+          joinedAt: new Date().toISOString(),
+          devicesCount: 1,
+          biometricEnabled: false,
+          pinCode: "0000",
+          e2eePublicKey: "GEN_KEY",
+          e2eeFingerprint: "SOVO-E2EE-GEN",
+        };
+        await setDoc(doc(db, "users", fbUser.uid), appUser);
+      }
+
+      sound.playBiometricSuccess();
+      onAuthenticate(appUser);
+    } catch (err: any) {
+      console.error("Google sign-in error:", err);
+      if (err.code === "auth/popup-closed-by-user") {
+        setErrorMsg("Sign-in was cancelled.");
+      } else if (err.code === "auth/popup-blocked") {
+        setErrorMsg("Popup was blocked by your browser. Please allow popups for this site.");
+      } else {
+        setErrorMsg(err.message || "Google sign-in failed.");
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -179,7 +231,7 @@ export const AuthLanding: React.FC<AuthLandingProps> = ({ onAuthenticate }) => {
         </div>
 
         {/* Google */}
-        <button type="button" onClick={() => handleSocial("Google")}
+        <button type="button" onClick={handleGoogleSignIn} disabled={isSubmitting}
           className="w-full py-4 px-4 mb-3 rounded-2xl bg-[#0e0e16] hover:bg-[#14141e] border border-[#222230] hover:border-[#333345] flex items-center justify-center gap-3 text-sm font-semibold text-white transition cursor-pointer">
           <svg className="w-5 h-5 flex-shrink-0" viewBox="0 0 24 24">
             <path fill="#4285F4" d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.665-5.17 3.665-9.17z"/>
