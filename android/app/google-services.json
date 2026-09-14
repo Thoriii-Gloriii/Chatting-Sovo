@@ -14,6 +14,14 @@
       },
       "oauth_client": [
         {
+          "client_id": "480015860775-jqu81i0msjv60k47lq5v51pej3ol5ddh.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.sovo.chat",
+            "certificate_hash": "f4ac66f3e3e0b3f88f1c690339e9f2141256be1c"
+          }
+        },
+        {
           "client_id": "480015860775-kmnqqneo9ceafsfu724rpfcq2444bskt.apps.googleusercontent.com",
           "client_type": 3
         }
