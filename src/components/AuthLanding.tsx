@@ -4,12 +4,46 @@ import { SovoLogo } from "./SovoLogo";
 import { User } from "../types";
 import { Lock, Eye, EyeOff, ArrowRight, Fingerprint, Phone } from "lucide-react";
 import { sound } from "../lib/sound";
-import { auth, db, doc, setDoc, createUserWithEmailAndPassword, signInWithEmailAndPassword, signInWithRedirect, getRedirectResult, signInWithPopup, signInWithCredential, googleProvider, GoogleAuthProvider, updateProfile, getDoc } from "../lib/firebase";
+import { supabase } from "../lib/supabase";
 import { Capacitor } from '@capacitor/core';
 import { GoogleAuth } from '@codetrix-studio/capacitor-google-auth';
 
 interface AuthLandingProps {
   onAuthenticate: (user: User) => void;
+}
+
+/** Build or recover an app User profile from Supabase Auth session data */
+async function upsertUserProfile(sbUser: { id: string; email?: string | null; user_metadata?: Record<string, any> }): Promise<User> {
+  const { data: existing } = await supabase
+    .from('users')
+    .select('*')
+    .eq('id', sbUser.id)
+    .maybeSingle();
+
+  if (existing) return existing as User;
+
+  // First time — create the profile
+  const meta = sbUser.user_metadata || {};
+  const fallbackName = meta.full_name || meta.name || sbUser.email?.split('@')[0] || "S'ovo User";
+  const newUser: User = {
+    id: sbUser.id,
+    username: (sbUser.email?.split('@')[0] || sbUser.id).toLowerCase().replace(/[^a-z0-9_]/g, '_'),
+    displayName: fallbackName,
+    phoneNumber: meta.phone || '',
+    avatarUrl: meta.avatar_url || meta.picture || `https://ui-avatars.com/api/?name=${encodeURIComponent(fallbackName)}&background=222230&color=ffd700`,
+    bio: "Hey there! I am using S'ovo.",
+    isOnline: true,
+    lastSeen: Date.now(),
+    joinedAt: new Date().toISOString(),
+    devicesCount: 1,
+    biometricEnabled: false,
+    pinCode: '0000',
+    e2eePublicKey: 'GEN_KEY',
+    e2eeFingerprint: 'SOVO-E2EE-GEN',
+  };
+
+  await supabase.from('users').insert(newUser);
+  return newUser;
 }
 
 export const AuthLanding: React.FC<AuthLandingProps> = ({ onAuthenticate }) => {
@@ -21,80 +55,68 @@ export const AuthLanding: React.FC<AuthLandingProps> = ({ onAuthenticate }) => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
 
+  // On mount: listen for OAuth redirect (web Google sign-in) callback
+  useEffect(() => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if ((event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') && session?.user) {
+        try {
+          const appUser = await upsertUserProfile(session.user);
+          sound.playBiometricSuccess();
+          onAuthenticate(appUser);
+        } catch (err) {
+          console.error('Auth state change error:', err);
+        }
+      }
+    });
+    return () => subscription.unsubscribe();
+  }, []);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!identifier || !password) { setErrorMsg("Please enter your email and password"); return; }
     if (mode === "signup" && !displayName) { setErrorMsg("Please enter your display name"); return; }
-    
+
     setErrorMsg("");
     setIsSubmitting(true);
     sound.playTap();
 
     try {
       if (mode === "signup") {
-        const userCredential = await createUserWithEmailAndPassword(auth, identifier, password);
-        const fbUser = userCredential.user;
+        const { data, error } = await supabase.auth.signUp({
+          email: identifier,
+          password,
+          options: { data: { full_name: displayName } },
+        });
+        if (error) throw error;
+        if (!data.user) throw new Error("Sign-up failed — no user returned.");
 
         const newUser: User = {
-          id: fbUser.uid,
+          id: data.user.id,
           username: identifier.split('@')[0],
-          displayName: displayName,
-          phoneNumber: "",
-          avatarUrl: fbUser.photoURL || `https://ui-avatars.com/api/?name=${encodeURIComponent(displayName)}&background=222230&color=ffd700`,
+          displayName,
+          phoneNumber: '',
+          avatarUrl: `https://ui-avatars.com/api/?name=${encodeURIComponent(displayName)}&background=222230&color=ffd700`,
           bio: "Hey there! I am using S'ovo.",
           isOnline: true,
           lastSeen: Date.now(),
           joinedAt: new Date().toISOString(),
           devicesCount: 1,
           biometricEnabled: false,
-          pinCode: "0000", e2eePublicKey: "GEN_KEY", e2eeFingerprint: "SOVO-E2EE-GEN"
+          pinCode: '0000',
+          e2eePublicKey: 'GEN_KEY',
+          e2eeFingerprint: 'SOVO-E2EE-GEN',
         };
-
-        // Only the Auth call needs to be awaited to know signup succeeded.
-        // The profile display-name update and the Firestore doc write don't
-        // block anything the user sees next, so let them finish in the
-        // background instead of holding up the hero page on two more
-        // network round-trips.
+        await supabase.from('users').insert(newUser);
         sound.playBiometricSuccess();
         onAuthenticate(newUser);
-
-        updateProfile(fbUser, { displayName }).catch((err) =>
-          console.error('Failed to update Auth display name', err)
-        );
-        setDoc(doc(db, "users", fbUser.uid), newUser).catch((err) =>
-          console.error('Failed to write user profile to Firestore', err)
-        );
       } else {
-        const userCredential = await signInWithEmailAndPassword(auth, identifier, password);
-        const fbUser = userCredential.user;
-        const userDoc = await getDoc(doc(db, "users", fbUser.uid));
-        if (userDoc.exists()) {
-          sound.playBiometricSuccess();
-          onAuthenticate(userDoc.data() as User);
-        } else {
-          // The Firebase Auth account exists but its Firestore profile doesn't
-          // (e.g. the signup write failed or was interrupted partway through).
-          // Rebuild a minimal profile from the Auth record instead of locking
-          // the user out of an account they can legitimately sign in to.
-          const fallbackName = fbUser.displayName || identifier.split('@')[0];
-          const recoveredUser: User = {
-            id: fbUser.uid,
-            username: identifier.split('@')[0],
-            displayName: fallbackName,
-            phoneNumber: fbUser.phoneNumber || "",
-            avatarUrl: fbUser.photoURL || `https://ui-avatars.com/api/?name=${encodeURIComponent(fallbackName)}&background=222230&color=ffd700`,
-            bio: "Hey there! I am using S'ovo.",
-            isOnline: true,
-            lastSeen: Date.now(),
-            joinedAt: new Date().toISOString(),
-            devicesCount: 1,
-            biometricEnabled: false,
-            pinCode: "0000", e2eePublicKey: "GEN_KEY", e2eeFingerprint: "SOVO-E2EE-GEN"
-          };
-          await setDoc(doc(db, "users", fbUser.uid), recoveredUser);
-          sound.playBiometricSuccess();
-          onAuthenticate(recoveredUser);
-        }
+        const { data, error } = await supabase.auth.signInWithPassword({ email: identifier, password });
+        if (error) throw error;
+        if (!data.user) throw new Error("Sign-in failed.");
+
+        const appUser = await upsertUserProfile(data.user);
+        sound.playBiometricSuccess();
+        onAuthenticate(appUser);
       }
     } catch (err: any) {
       console.error("Auth error:", err);
@@ -104,106 +126,45 @@ export const AuthLanding: React.FC<AuthLandingProps> = ({ onAuthenticate }) => {
     }
   };
 
-  // On mount: check if we're returning from a Google redirect sign-in
-  useEffect(() => {
-    setIsSubmitting(true);
-    getRedirectResult(auth)
-      .then(async (result) => {
-        if (!result) return;
-        const fbUser = result.user;
-        const userDoc = await getDoc(doc(db, "users", fbUser.uid));
-        let appUser: User;
-        if (userDoc.exists()) {
-          appUser = userDoc.data() as User;
-        } else {
-          const fallbackName = fbUser.displayName || fbUser.email?.split("@")[0] || "S'ovo User";
-          appUser = {
-            id: fbUser.uid,
-            username: (fbUser.email?.split("@")[0] || fbUser.uid).toLowerCase().replace(/[^a-z0-9_]/g, "_"),
-            displayName: fallbackName,
-            phoneNumber: fbUser.phoneNumber || "",
-            avatarUrl: fbUser.photoURL || `https://ui-avatars.com/api/?name=${encodeURIComponent(fallbackName)}&background=222230&color=ffd700`,
-            bio: "Hey there! I am using S'ovo.",
-            isOnline: true,
-            lastSeen: Date.now(),
-            joinedAt: new Date().toISOString(),
-            devicesCount: 1,
-            biometricEnabled: false,
-            pinCode: "0000",
-            e2eePublicKey: "GEN_KEY",
-            e2eeFingerprint: "SOVO-E2EE-GEN",
-          };
-          await setDoc(doc(db, "users", fbUser.uid), appUser);
-        }
-        sound.playBiometricSuccess();
-        onAuthenticate(appUser);
-      })
-      .catch((err) => {
-        if (err.code !== "auth/no-current-user") {
-          setErrorMsg(err.message || "Google sign-in failed.");
-        }
-      })
-      .finally(() => setIsSubmitting(false));
-  }, []);
-
   const handleGoogleSignIn = async () => {
     sound.playTap();
     setErrorMsg("");
     setIsSubmitting(true);
     try {
-      let fbUser;
-
       if (Capacitor.isNativePlatform()) {
-        // --- Android APK: use native Google Sign-In (no browser redirect) ---
+        // --- Android APK: use native Google Sign-In to get ID token ---
         await GoogleAuth.initialize({
-          clientId: '480015860775-kmnqqneo9ceafsfu724rpfcq2444bskt.apps.googleusercontent.com',
+          clientId: '480015860775-jqu81i0msjv60k47lq5v51pej3ol5ddh.apps.googleusercontent.com',
           scopes: ['profile', 'email'],
           grantOfflineAccess: true,
         });
         const googleUser = await GoogleAuth.signIn();
         const idToken = googleUser.authentication.idToken;
-        const credential = GoogleAuthProvider.credential(idToken);
-        const result = await signInWithCredential(auth, credential);
-        fbUser = result.user;
-      } else {
-        // --- Web: use signInWithPopup (instant popup, no redirect) ---
-        const result = await signInWithPopup(auth, googleProvider);
-        fbUser = result.user;
-      }
 
-      // Load or create Firestore profile
-      const userDoc = await getDoc(doc(db, "users", fbUser.uid));
-      let appUser: User;
-      if (userDoc.exists()) {
-        appUser = userDoc.data() as User;
+        const { data, error } = await supabase.auth.signInWithIdToken({
+          provider: 'google',
+          token: idToken,
+        });
+        if (error) throw error;
+        if (!data.user) throw new Error("Google sign-in failed — no user returned.");
+
+        const appUser = await upsertUserProfile(data.user);
+        sound.playBiometricSuccess();
+        onAuthenticate(appUser);
       } else {
-        const fallbackName = fbUser.displayName || fbUser.email?.split("@")[0] || "S'ovo User";
-        appUser = {
-          id: fbUser.uid,
-          username: (fbUser.email?.split("@")[0] || fbUser.uid).toLowerCase().replace(/[^a-z0-9_]/g, "_"),
-          displayName: fallbackName,
-          phoneNumber: fbUser.phoneNumber || "",
-          avatarUrl: fbUser.photoURL || `https://ui-avatars.com/api/?name=${encodeURIComponent(fallbackName)}&background=222230&color=ffd700`,
-          bio: "Hey there! I am using S'ovo.",
-          isOnline: true,
-          lastSeen: Date.now(),
-          joinedAt: new Date().toISOString(),
-          devicesCount: 1,
-          biometricEnabled: false,
-          pinCode: "0000",
-          e2eePublicKey: "GEN_KEY",
-          e2eeFingerprint: "SOVO-E2EE-GEN",
-        };
-        await setDoc(doc(db, "users", fbUser.uid), appUser);
+        // --- Web: OAuth redirect via Supabase ---
+        const { error } = await supabase.auth.signInWithOAuth({
+          provider: 'google',
+          options: { redirectTo: window.location.origin },
+        });
+        if (error) throw error;
+        // onAuthStateChange listener above will handle the callback
       }
-      sound.playBiometricSuccess();
-      onAuthenticate(appUser);
     } catch (err: any) {
       console.error("Google sign-in error:", JSON.stringify(err));
       const errCode = err?.code || err?.errorCode || "unknown";
       const errMsg = err?.message || err?.errorMessage || JSON.stringify(err);
       setErrorMsg(`Sign-in failed [${errCode}]: ${errMsg}`);
-    } finally {
       setIsSubmitting(false);
     }
   };
@@ -345,4 +306,3 @@ export const AuthLanding: React.FC<AuthLandingProps> = ({ onAuthenticate }) => {
     </div>
   );
 };
-

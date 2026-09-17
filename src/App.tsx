@@ -1,4 +1,4 @@
-import { auth, db, onAuthStateChanged, collection, query, where, onSnapshot, getDoc, getDocs, doc, setDoc, updateDoc, addDoc, arrayUnion, arrayRemove, increment, serverTimestamp } from './lib/firebase';
+import { supabase } from './lib/supabase';
 import { uploadFileToStorage } from './lib/upload';
 import React, { useState, useEffect } from 'react';
 import {
@@ -95,25 +95,32 @@ export default function App() {
 
   // Check saved session on load
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
-      if (fbUser) {
-        const userDoc = await getDoc(doc(db, "users", fbUser.uid));
-        if (userDoc.exists()) {
-          const u = userDoc.data() as User;
-          setCurrentUser((prev) => prev || u);
-          if (u.biometricEnabled && settings.biometricLock) {
-            setIsBiometricLocked(true);
-          }
-          setAppStage((prev) => (prev === 'auth' ? 'main' : prev));
+    // Check for existing session
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
+      if (session?.user) {
+        const { data: u } = await supabase.from('users').select('*').eq('id', session.user.id).maybeSingle();
+        if (u) {
+          setCurrentUser(u as User);
+          if ((u as User).biometricEnabled && settings.biometricLock) setIsBiometricLocked(true);
+        }
+      }
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (session?.user) {
+        const { data: u } = await supabase.from('users').select('*').eq('id', session.user.id).maybeSingle();
+        if (u) {
+          setCurrentUser(u as User);
+          if ((u as User).biometricEnabled && settings.biometricLock) setIsBiometricLocked(true);
+          if (appStage !== 'splash') setAppStage('main');
         }
       } else {
         setCurrentUser(null);
-        setAppStage((prev) => (prev === 'main' ? 'auth' : prev));
+        if (appStage === 'main') setAppStage('auth');
       }
     });
-    return () => unsubscribe();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    return () => subscription.unsubscribe();
+  }, [appStage, settings.biometricLock]);
 
   const handleSplashComplete = () => {
     if (currentUser) {
@@ -128,98 +135,114 @@ export default function App() {
     setAppStage('main');
   };
 
-  const handleSignOut = () => {
-    auth.signOut();
+  const handleSignOut = async () => {
+    await supabase.auth.signOut();
     setCurrentUser(null);
     setActiveConversation(null);
     setAppStage('auth');
   };
 
-  // Load conversations from Firestore
+  // Load conversations from Supabase (initial + realtime)
   useEffect(() => {
     if (!currentUser) return;
-    const q = query(
-      collection(db, 'conversations'),
-      where('members', 'array-contains', currentUser.id)
-    );
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const convs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Conversation));
-      // Sort by lastMessage timestamp or createdAt
-      convs.sort((a, b) => {
-        const tA = a.lastMessage?.timestamp || a.createdAt;
-        const tB = b.lastMessage?.timestamp || b.createdAt;
-        return tB - tA;
-      });
-      setConversations(convs);
-    });
-    return () => unsubscribe();
+
+    const load = async () => {
+      const { data } = await supabase
+        .from('conversations')
+        .select('*')
+        .contains('members', [currentUser.id]);
+      if (data) {
+        const convs = data as Conversation[];
+        convs.sort((a, b) => {
+          const tA = a.lastMessage?.timestamp || a.createdAt;
+          const tB = b.lastMessage?.timestamp || b.createdAt;
+          return tB - tA;
+        });
+        setConversations(convs);
+      }
+    };
+    load();
+
+    const channel = supabase
+      .channel('conversations')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'conversations' }, load)
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
   }, [currentUser]);
 
-  // Real user directory: every other registered account, used to power "Discover"
-  // and @username search instead of a fake local contact-sync simulation.
+  // Real user directory (all other registered accounts)
   useEffect(() => {
     if (!currentUser) return;
-    const unsubscribe = onSnapshot(collection(db, 'users'), (snapshot) => {
-      const others = snapshot.docs
-        .map((d) => d.data() as User)
-        .filter((u) => u.id !== currentUser.id);
-      const asContacts: SyncedContact[] = others.map((u) => ({
-        id: u.id,
-        name: u.displayName,
-        phoneNumber: u.phoneNumber || '',
-        isRegistered: true,
-        sovoUsername: u.username,
-        sovoAvatar: u.avatarUrl,
-        sovoUserId: u.id,
-        status: u.bio,
-      }));
-      setSyncedContacts(asContacts);
-    });
-    return () => unsubscribe();
+
+    const load = async () => {
+      const { data } = await supabase.from('users').select('*').neq('id', currentUser.id);
+      if (data) {
+        const asContacts: SyncedContact[] = (data as User[]).map((u) => ({
+          id: u.id,
+          name: u.displayName,
+          phoneNumber: u.phoneNumber || '',
+          isRegistered: true,
+          sovoUsername: u.username,
+          sovoAvatar: u.avatarUrl,
+          sovoUserId: u.id,
+          status: u.bio,
+        }));
+        setSyncedContacts(asContacts);
+      }
+    };
+    load();
+
+    const channel = supabase
+      .channel('users-dir')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'users' }, load)
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
   }, [currentUser]);
 
-  // Real status stories: read from Firestore, grouped by author, dropping
-  // anything already expired. Posting a status is handled by handleAddStatus.
+  // Real status stories: grouped by author, dropping anything already expired
   useEffect(() => {
     if (!currentUser) return;
-    const q = query(collection(db, 'statuses'), where('expiresAt', '>', Date.now()));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
+
+    const load = async () => {
+      const { data } = await supabase
+        .from('statuses')
+        .select('*')
+        .gt('expires_at', new Date().toISOString());
+      if (!data) return;
+
       const byUser = new Map<string, UserStatusStory>();
-      snapshot.docs.forEach((docSnap) => {
-        const data = docSnap.data() as StatusItem & {
-          authorId: string;
-          authorUsername: string;
-          authorDisplayName: string;
-          authorAvatarUrl: string;
-          likedBy?: string[];
-        };
+      (data as any[]).forEach((row) => {
+        const createdMs = new Date(row.created_at).getTime();
+        const expiresMs = new Date(row.expires_at).getTime();
         const item: StatusItem = {
-          id: docSnap.id,
-          mediaUrl: data.mediaUrl,
-          mediaType: data.mediaType,
-          caption: data.caption,
-          createdAt: data.createdAt,
-          expiresAt: data.expiresAt,
-          durationDays: data.durationDays,
-          musicTrack: data.musicTrack,
-          likesCount: data.likedBy?.length || 0,
-          hasLiked: data.likedBy?.includes(currentUser.id) || false,
-          viewsCount: data.viewsCount || 0,
-          privacy: data.privacy,
+          id: row.id,
+          mediaUrl: row.media_url,
+          mediaType: row.media_type,
+          caption: row.caption,
+          createdAt: createdMs,
+          expiresAt: expiresMs,
+          durationDays: row.duration_days,
+          musicTrack: row.music_track,
+          likesCount: row.liked_by?.length || 0,
+          hasLiked: row.liked_by?.includes(currentUser.id) || false,
+          viewsCount: row.views_count || 0,
+          privacy: row.privacy,
           isEncrypted: false,
         };
-        const existing = byUser.get(data.authorId);
+        const existing = byUser.get(row.author_id);
         if (existing) {
           existing.items.push(item);
-          existing.lastUpdated = Math.max(existing.lastUpdated, data.createdAt);
+          existing.lastUpdated = Math.max(existing.lastUpdated, createdMs);
         } else {
-          byUser.set(data.authorId, {
-            userId: data.authorId,
-            username: data.authorUsername,
-            displayName: data.authorId === currentUser.id ? 'Your Status' : data.authorDisplayName,
-            avatarUrl: data.authorAvatarUrl,
-            isCurrentUser: data.authorId === currentUser.id,
-            lastUpdated: data.createdAt,
+          byUser.set(row.author_id, {
+            userId: row.author_id,
+            username: row.author_username,
+            displayName: row.author_id === currentUser.id ? 'Your Status' : row.author_display_name,
+            avatarUrl: row.author_avatar_url,
+            isCurrentUser: row.author_id === currentUser.id,
+            lastUpdated: createdMs,
             items: [item],
           });
         }
@@ -227,20 +250,37 @@ export default function App() {
       const stories = Array.from(byUser.values()).sort((a, b) => b.lastUpdated - a.lastUpdated);
       stories.forEach((s) => s.items.sort((a, b) => a.createdAt - b.createdAt));
       setStatusStories(stories);
-    });
-    return () => unsubscribe();
+    };
+    load();
+
+    const channel = supabase
+      .channel('statuses')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'statuses' }, load)
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
   }, [currentUser]);
 
-  // Real call log, scoped to calls this account was part of.
+  // Real call log, scoped to calls this account was part of
   useEffect(() => {
     if (!currentUser) return;
-    const q = query(collection(db, 'calls'), where('members', 'array-contains', currentUser.id));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const calls = snapshot.docs.map((d) => d.data() as CallRecord);
-      calls.sort((a, b) => b.timestamp - a.timestamp);
-      setCallsList(calls);
-    });
-    return () => unsubscribe();
+
+    const load = async () => {
+      const { data } = await supabase
+        .from('calls')
+        .select('*')
+        .contains('members', [currentUser.id])
+        .order('created_at', { ascending: false });
+      if (data) setCallsList(data as CallRecord[]);
+    };
+    load();
+
+    const channel = supabase
+      .channel('calls')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'calls' }, load)
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
   }, [currentUser]);
 
   // A single, real "this device" entry — actual multi-device session tracking
@@ -279,8 +319,9 @@ export default function App() {
   ) => {
     if (!activeConversation || !currentUser) return;
 
+    const now = Date.now();
     const newMsg: Message = {
-      id: `msg_${Date.now()}`,
+      id: `msg_${now}`,
       conversationId: activeConversation.id,
       senderId: currentUser.id,
       senderName: currentUser.displayName,
@@ -294,45 +335,41 @@ export default function App() {
       audioDurationSeconds: mediaData?.duration,
       isEncrypted: true,
       e2eeFingerprint: activeConversation.e2eeKeyFingerprint,
-      status: 'read', // simulate instant read when receipts enabled
-      timestamp: Date.now(),
+      status: 'read',
+      timestamp: now,
     };
 
-    // Update messages map
+    // Optimistic local update
     setMessagesMap((prev) => ({
       ...prev,
       [activeConversation.id]: [...(prev[activeConversation.id] || []), newMsg],
     }));
-
-    // Update conversation last message preview
     setConversations((prev) =>
-      prev.map((c) =>
-        c.id === activeConversation.id
-          ? {
-              ...c,
-              lastMessage: newMsg,
-            }
-          : c
-      )
+      prev.map((c) => c.id === activeConversation.id ? { ...c, lastMessage: newMsg } : c)
     );
 
     try {
-      // 1. Add message to the subcollection
-      const msgRef = doc(collection(db, 'conversations', activeConversation.id, 'messages'), newMsg.id);
-      await setDoc(msgRef, newMsg);
-
-      // 2. Update last message on conversation
-      const convRef = doc(db, 'conversations', activeConversation.id);
-      await setDoc(convRef, { lastMessage: newMsg, unreadCount: activeConversation.unreadCount + 1 }, { merge: true });
+      // 1. Insert message into flat messages table
+      await supabase.from('messages').insert({
+        id: newMsg.id,
+        conversation_id: activeConversation.id,
+        sender_id: currentUser.id,
+        content: text,
+        media_url: mediaData?.url,
+        type: mediaData?.type || 'text',
+        timestamp: new Date(now).toISOString(),
+      });
+      // 2. Update conversation's last_message + unread_count
+      await supabase.from('conversations').update({
+        last_message: newMsg,
+        unread_count: (activeConversation.unreadCount || 0) + 1,
+      }).eq('id', activeConversation.id);
     } catch (e) {
-      console.error("Error sending message", e);
+      console.error('Error sending message', e);
     }
   };
 
   // Status Stories Management
-  // Direct conversations get a stable id derived from both member UIDs (sorted),
-  // so the same two real people always land in the same real conversation
-  // instead of each client inventing its own fake/duplicate thread.
   const getDirectConversationId = (uid1: string, uid2: string) =>
     `conv_direct_${[uid1, uid2].sort().join('_')}`;
 
@@ -343,25 +380,24 @@ export default function App() {
     privacy: StatusItem['privacy']
   ) => {
     if (!currentUser) return;
-    const now = Date.now();
+    const now = new Date();
     const mediaUrl = await uploadFileToStorage(
-      `statuses/${currentUser.id}/${now}_${file.name}`,
+      `statuses/${currentUser.id}/${now.getTime()}_${file.name}`,
       file
     );
-    await addDoc(collection(db, 'statuses'), {
-      authorId: currentUser.id,
-      authorUsername: currentUser.username,
-      authorDisplayName: currentUser.displayName,
-      authorAvatarUrl: currentUser.avatarUrl,
-      mediaUrl,
-      mediaType: file.type.startsWith('video/') ? 'video' : 'image',
+    await supabase.from('statuses').insert({
+      author_id: currentUser.id,
+      author_username: currentUser.username,
+      author_display_name: currentUser.displayName,
+      author_avatar_url: currentUser.avatarUrl,
+      media_url: mediaUrl,
+      media_type: file.type.startsWith('video/') ? 'video' : 'image',
       caption,
-      createdAt: now,
-      expiresAt: now + durationDays * 24 * 60 * 60 * 1000,
-      durationDays,
+      expires_at: new Date(now.getTime() + (durationDays as number) * 24 * 60 * 60 * 1000).toISOString(),
+      duration_days: durationDays,
       privacy,
-      viewsCount: 0,
-      likedBy: [],
+      views_count: 0,
+      liked_by: [],
     });
   };
 
@@ -369,14 +405,13 @@ export default function App() {
     if (!currentUser) return;
     const story = statusStories.find((s) => s.userId === storyUserId);
     const item = story?.items.find((i) => i.id === itemId);
-    const statusRef = doc(db, 'statuses', itemId);
-    try {
-      await updateDoc(statusRef, {
-        likedBy: item?.hasLiked ? arrayRemove(currentUser.id) : arrayUnion(currentUser.id),
-      });
-    } catch (e) {
-      console.error('Error toggling status like', e);
-    }
+    const currentLikedBy: string[] = [];
+    const { data } = await supabase.from('statuses').select('liked_by').eq('id', itemId).single();
+    const likedBy: string[] = data?.liked_by || [];
+    const newLikedBy = item?.hasLiked
+      ? likedBy.filter((id) => id !== currentUser.id)
+      : [...likedBy, currentUser.id];
+    await supabase.from('statuses').update({ liked_by: newLikedBy }).eq('id', itemId);
   };
 
   const handleSendStatusReply = async (contactId: string, replyText: string, statusItem: StatusItem) => {
@@ -389,7 +424,7 @@ export default function App() {
       conv = {
         id: convId,
         type: 'direct',
-        name: contact?.name || 'S’ovo User',
+        name: contact?.name || "S'ovo User",
         username: contact?.sovoUsername,
         avatar: contact?.sovoAvatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(contact?.name || '?')}&background=222230&color=ffd700`,
         members: [currentUser.id, contactId],
@@ -401,15 +436,12 @@ export default function App() {
         e2eeKeyFingerprint: `SOVO-E2EE-${Date.now().toString(16).toUpperCase()}`,
         createdAt: Date.now(),
       };
-      try {
-        await setDoc(doc(db, 'conversations', conv.id), conv);
-      } catch (e) {
-        console.error('Failed to create conversation for status reply', e);
-      }
+      await supabase.from('conversations').upsert(conv);
     }
 
+    const now = Date.now();
     const newMsg: Message = {
-      id: `msg_${Date.now()}`,
+      id: `msg_${now}`,
       conversationId: conv.id,
       senderId: currentUser.id,
       senderName: currentUser.displayName,
@@ -419,15 +451,19 @@ export default function App() {
       mediaType: 'image',
       isEncrypted: true,
       status: 'sent',
-      timestamp: Date.now(),
+      timestamp: now,
     };
 
-    try {
-      await setDoc(doc(collection(db, 'conversations', conv.id, 'messages'), newMsg.id), newMsg);
-      await setDoc(doc(db, 'conversations', conv.id), { lastMessage: newMsg }, { merge: true });
-    } catch (e) {
-      console.error('Failed to send status reply', e);
-    }
+    await supabase.from('messages').insert({
+      id: newMsg.id,
+      conversation_id: conv.id,
+      sender_id: currentUser.id,
+      content: newMsg.text,
+      media_url: statusItem.mediaUrl,
+      type: 'image',
+      timestamp: new Date(now).toISOString(),
+    });
+    await supabase.from('conversations').update({ last_message: newMsg }).eq('id', conv.id);
 
     setActiveConversation(conv);
     setActiveTab('chats');
@@ -458,24 +494,14 @@ export default function App() {
         e2eeKeyFingerprint: `SOVO-E2EE-${Date.now().toString(16).toUpperCase()}`,
         createdAt: Date.now(),
       };
-      
-      try {
-        await setDoc(doc(db, 'conversations', newConv.id), newConv);
-      } catch (e) {
-        console.error("Failed to create conversation", e);
-      }
-
+      await supabase.from('conversations').upsert(newConv);
       setActiveConversation(newConv);
       setActiveTab('chats');
     }
   };
 
   const handleCreateGroup = async (newGroup: Conversation) => {
-    try {
-      await setDoc(doc(db, 'conversations', newGroup.id), newGroup);
-    } catch (e) {
-      console.error('Failed to create group', e);
-    }
+    await supabase.from('conversations').upsert(newGroup);
     setActiveConversation(newGroup);
     setActiveTab('chats');
   };
@@ -515,14 +541,10 @@ export default function App() {
         timestamp: Date.now(),
         isEncrypted: true,
       };
-      try {
-        await setDoc(doc(db, 'calls', newRecord.id), {
-          ...newRecord,
-          members: [currentUser.id, activeCall.peerId],
-        });
-      } catch (e) {
-        console.error('Failed to save call record', e);
-      }
+      await supabase.from('calls').insert({
+        ...newRecord,
+        members: [currentUser.id, activeCall.peerId],
+      });
     }
     setActiveCall(null);
   };
@@ -672,18 +694,14 @@ export default function App() {
                   onUpdateSettings={(newSet) => setSettings((s) => ({ ...s, ...newSet }))}
                   onUpdateProfile={async (updated) => {
                     setCurrentUser((u) => (u ? { ...u, ...updated } : null));
-                    try {
-                      await updateDoc(doc(db, 'users', currentUser.id), updated);
-                    } catch (e) {
-                      console.error('Failed to persist profile update', e);
-                    }
+                    await supabase.from('users').update(updated).eq('id', currentUser.id);
                   }}
                   onUploadAvatar={async (file) => {
                     const avatarUrl = await uploadFileToStorage(
                       `avatars/${currentUser.id}/${Date.now()}_${file.name}`,
                       file
                     );
-                    await updateDoc(doc(db, 'users', currentUser.id), { avatarUrl });
+                    await supabase.from('users').update({ avatar_url: avatarUrl }).eq('id', currentUser.id);
                     setCurrentUser((u) => (u ? { ...u, avatarUrl } : null));
                   }}
                   onUnlinkDevice={(id) =>
