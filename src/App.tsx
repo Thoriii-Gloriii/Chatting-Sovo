@@ -100,23 +100,20 @@ export default function App() {
         const userDoc = await getDoc(doc(db, "users", fbUser.uid));
         if (userDoc.exists()) {
           const u = userDoc.data() as User;
-          setCurrentUser(u);
+          setCurrentUser((prev) => prev || u);
           if (u.biometricEnabled && settings.biometricLock) {
             setIsBiometricLocked(true);
           }
-          if (appStage === 'splash') {
-             // We'll let splash complete naturally or we can skip it
-          } else {
-             setAppStage('main');
-          }
+          setAppStage((prev) => (prev === 'auth' ? 'main' : prev));
         }
       } else {
         setCurrentUser(null);
-        if (appStage === 'main') setAppStage('auth');
+        setAppStage((prev) => (prev === 'main' ? 'auth' : prev));
       }
     });
     return () => unsubscribe();
-  }, [appStage, settings.biometricLock]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleSplashComplete = () => {
     if (currentUser) {

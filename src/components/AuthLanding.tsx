@@ -34,8 +34,7 @@ export const AuthLanding: React.FC<AuthLandingProps> = ({ onAuthenticate }) => {
       if (mode === "signup") {
         const userCredential = await createUserWithEmailAndPassword(auth, identifier, password);
         const fbUser = userCredential.user;
-        await updateProfile(fbUser, { displayName });
-        
+
         const newUser: User = {
           id: fbUser.uid,
           username: identifier.split('@')[0],
@@ -50,9 +49,21 @@ export const AuthLanding: React.FC<AuthLandingProps> = ({ onAuthenticate }) => {
           biometricEnabled: false,
           pinCode: "0000", e2eePublicKey: "GEN_KEY", e2eeFingerprint: "SOVO-E2EE-GEN"
         };
-        await setDoc(doc(db, "users", fbUser.uid), newUser);
+
+        // Only the Auth call needs to be awaited to know signup succeeded.
+        // The profile display-name update and the Firestore doc write don't
+        // block anything the user sees next, so let them finish in the
+        // background instead of holding up the hero page on two more
+        // network round-trips.
         sound.playBiometricSuccess();
         onAuthenticate(newUser);
+
+        updateProfile(fbUser, { displayName }).catch((err) =>
+          console.error('Failed to update Auth display name', err)
+        );
+        setDoc(doc(db, "users", fbUser.uid), newUser).catch((err) =>
+          console.error('Failed to write user profile to Firestore', err)
+        );
       } else {
         const userCredential = await signInWithEmailAndPassword(auth, identifier, password);
         const fbUser = userCredential.user;
