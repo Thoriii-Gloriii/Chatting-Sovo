@@ -1,4 +1,4 @@
-import { db, collection, query, orderBy, onSnapshot } from '../lib/firebase';
+import { supabase } from '../lib/supabase';
 import { uploadFileToStorage } from '../lib/upload';
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -71,12 +71,34 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
 
   useEffect(() => {
     if (!conversation) return;
-    const q = query(collection(db, 'conversations', conversation.id, 'messages'), orderBy('timestamp', 'asc'));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const msgs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Message));
-      setMessages(msgs);
-    });
-    return () => unsubscribe();
+
+    // Initial load
+    supabase
+      .from('messages')
+      .select('*')
+      .eq('conversationId', conversation.id)
+      .order('timestamp', { ascending: true })
+      .then(({ data, error }) => {
+        if (error) console.error('Failed to load messages', error);
+        if (data) setMessages(data as Message[]);
+      });
+
+    // Realtime subscription for new messages
+    const channel = supabase
+      .channel(`messages:${conversation.id}`)
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'messages', filter: `conversationId=eq.${conversation.id}` },
+        (payload) => {
+          setMessages((prev) => {
+            const already = prev.some((m) => m.id === payload.new.id);
+            return already ? prev : [...prev, payload.new as Message];
+          });
+        }
+      )
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
   }, [conversation?.id]);
   const [showAttachMenu, setShowAttachMenu] = useState(false);
   const [showDetailsModal, setShowDetailsModal] = useState(false);

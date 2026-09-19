@@ -1,4 +1,5 @@
-import { auth, db, onAuthStateChanged, collection, query, where, onSnapshot, getDoc, getDocs, doc, setDoc, updateDoc, addDoc, arrayUnion, arrayRemove, increment, serverTimestamp } from './lib/firebase';
+import { supabase } from './lib/supabase';
+import { ensureProfile } from './lib/authProfile';
 import { uploadFileToStorage } from './lib/upload';
 import React, { useState, useEffect } from 'react';
 import {
@@ -93,25 +94,34 @@ export default function App() {
   const [linkedDevices, setLinkedDevices] = useState<LinkedDevice[]>([]);
   const [callsList, setCallsList] = useState<CallRecord[]>([]);
 
-  // Check saved session on load
+  // Check saved session on load, and react to sign-in/sign-out afterward.
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
-      if (fbUser) {
-        const userDoc = await getDoc(doc(db, "users", fbUser.uid));
-        if (userDoc.exists()) {
-          const u = userDoc.data() as User;
-          setCurrentUser((prev) => prev || u);
-          if (u.biometricEnabled && settings.biometricLock) {
-            setIsBiometricLocked(true);
-          }
-          setAppStage((prev) => (prev === 'auth' ? 'main' : prev));
+    let cancelled = false;
+
+    const applySession = async (authUser: import('@supabase/supabase-js').User | null) => {
+      if (authUser) {
+        const u = await ensureProfile(authUser);
+        if (cancelled) return;
+        setCurrentUser((prev) => prev || u);
+        if (u.biometricEnabled && settings.biometricLock) {
+          setIsBiometricLocked(true);
         }
+        setAppStage((prev) => (prev === 'auth' ? 'main' : prev));
       } else {
         setCurrentUser(null);
         setAppStage((prev) => (prev === 'main' ? 'auth' : prev));
       }
+    };
+
+    supabase.auth.getSession().then(({ data: { session } }) => applySession(session?.user ?? null));
+
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      applySession(session?.user ?? null);
     });
-    return () => unsubscribe();
+    return () => {
+      cancelled = true;
+      listener.subscription.unsubscribe();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -129,72 +139,125 @@ export default function App() {
   };
 
   const handleSignOut = () => {
-    auth.signOut();
+    supabase.auth.signOut();
     setCurrentUser(null);
     setActiveConversation(null);
     setAppStage('auth');
   };
 
-  // Load conversations from Firestore
+  const sortConversations = (list: Conversation[]) =>
+    [...list].sort((a, b) => {
+      const tA = a.lastMessage?.timestamp || a.createdAt;
+      const tB = b.lastMessage?.timestamp || b.createdAt;
+      return tB - tA;
+    });
+
+  // Load conversations, then keep them live via a realtime channel. Postgres
+  // realtime filters can't express "array contains", so we subscribe to all
+  // changes on the table and filter client-side against membership.
   useEffect(() => {
     if (!currentUser) return;
-    const q = query(
-      collection(db, 'conversations'),
-      where('members', 'array-contains', currentUser.id)
-    );
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const convs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Conversation));
-      // Sort by lastMessage timestamp or createdAt
-      convs.sort((a, b) => {
-        const tA = a.lastMessage?.timestamp || a.createdAt;
-        const tB = b.lastMessage?.timestamp || b.createdAt;
-        return tB - tA;
+    let cancelled = false;
+
+    supabase
+      .from('conversations')
+      .select('*')
+      .contains('members', [currentUser.id])
+      .then(({ data, error }) => {
+        if (error) console.error('Failed to load conversations', error);
+        if (!cancelled && data) setConversations(sortConversations(data as Conversation[]));
       });
-      setConversations(convs);
-    });
-    return () => unsubscribe();
+
+    const channel = supabase
+      .channel(`conversations-${currentUser.id}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'conversations' },
+        (payload) => {
+          const row = (payload.new ?? payload.old) as Conversation | undefined;
+          if (!row?.members?.includes(currentUser.id)) return;
+          setConversations((prev) => {
+            let next: Conversation[];
+            if (payload.eventType === 'DELETE') {
+              next = prev.filter((c) => c.id !== row.id);
+            } else {
+              const idx = prev.findIndex((c) => c.id === row.id);
+              const updated = payload.new as Conversation;
+              next = idx >= 0 ? prev.map((c, i) => (i === idx ? updated : c)) : [...prev, updated];
+            }
+            return sortConversations(next);
+          });
+        }
+      )
+      .subscribe();
+
+    return () => {
+      cancelled = true;
+      supabase.removeChannel(channel);
+    };
   }, [currentUser]);
 
   // Real user directory: every other registered account, used to power "Discover"
   // and @username search instead of a fake local contact-sync simulation.
   useEffect(() => {
     if (!currentUser) return;
-    const unsubscribe = onSnapshot(collection(db, 'users'), (snapshot) => {
-      const others = snapshot.docs
-        .map((d) => d.data() as User)
-        .filter((u) => u.id !== currentUser.id);
-      const asContacts: SyncedContact[] = others.map((u) => ({
-        id: u.id,
-        name: u.displayName,
-        phoneNumber: u.phoneNumber || '',
-        isRegistered: true,
-        sovoUsername: u.username,
-        sovoAvatar: u.avatarUrl,
-        sovoUserId: u.id,
-        status: u.bio,
-      }));
-      setSyncedContacts(asContacts);
-    });
-    return () => unsubscribe();
+    let cancelled = false;
+
+    const mapToContacts = (rows: User[]): SyncedContact[] =>
+      rows
+        .filter((u) => u.id !== currentUser.id)
+        .map((u) => ({
+          id: u.id,
+          name: u.displayName,
+          phoneNumber: u.phoneNumber || '',
+          isRegistered: true,
+          sovoUsername: u.username,
+          sovoAvatar: u.avatarUrl,
+          sovoUserId: u.id,
+          status: u.bio,
+        }));
+
+    const loadContacts = () => {
+      supabase
+        .from('profiles')
+        .select('*')
+        .then(({ data, error }) => {
+          if (error) console.error('Failed to load user directory', error);
+          if (!cancelled && data) setSyncedContacts(mapToContacts(data as User[]));
+        });
+    };
+    loadContacts();
+
+    const channel = supabase
+      .channel('profiles-directory')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, loadContacts)
+      .subscribe();
+
+    return () => {
+      cancelled = true;
+      supabase.removeChannel(channel);
+    };
   }, [currentUser]);
 
-  // Real status stories: read from Firestore, grouped by author, dropping
+  // Real status stories: read from Supabase, grouped by author, dropping
   // anything already expired. Posting a status is handled by handleAddStatus.
   useEffect(() => {
     if (!currentUser) return;
-    const q = query(collection(db, 'statuses'), where('expiresAt', '>', Date.now()));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
+    let cancelled = false;
+
+    type StatusRow = StatusItem & {
+      authorId: string;
+      authorUsername: string;
+      authorDisplayName: string;
+      authorAvatarUrl: string;
+      likedBy?: string[];
+    };
+
+    const groupAndSet = (rows: StatusRow[]) => {
       const byUser = new Map<string, UserStatusStory>();
-      snapshot.docs.forEach((docSnap) => {
-        const data = docSnap.data() as StatusItem & {
-          authorId: string;
-          authorUsername: string;
-          authorDisplayName: string;
-          authorAvatarUrl: string;
-          likedBy?: string[];
-        };
+      rows.forEach((data) => {
         const item: StatusItem = {
-          id: docSnap.id,
+          id: data.id,
           mediaUrl: data.mediaUrl,
           mediaType: data.mediaType,
           caption: data.caption,
@@ -226,21 +289,68 @@ export default function App() {
       });
       const stories = Array.from(byUser.values()).sort((a, b) => b.lastUpdated - a.lastUpdated);
       stories.forEach((s) => s.items.sort((a, b) => a.createdAt - b.createdAt));
-      setStatusStories(stories);
-    });
-    return () => unsubscribe();
+      if (!cancelled) setStatusStories(stories);
+    };
+
+    const loadStatuses = () => {
+      supabase
+        .from('statuses')
+        .select('*')
+        .gt('expiresAt', Date.now())
+        .then(({ data, error }) => {
+          if (error) console.error('Failed to load statuses', error);
+          if (data) groupAndSet(data as StatusRow[]);
+        });
+    };
+    loadStatuses();
+
+    const channel = supabase
+      .channel('statuses-feed')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'statuses' }, loadStatuses)
+      .subscribe();
+
+    return () => {
+      cancelled = true;
+      supabase.removeChannel(channel);
+    };
   }, [currentUser]);
 
   // Real call log, scoped to calls this account was part of.
   useEffect(() => {
     if (!currentUser) return;
-    const q = query(collection(db, 'calls'), where('members', 'array-contains', currentUser.id));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const calls = snapshot.docs.map((d) => d.data() as CallRecord);
-      calls.sort((a, b) => b.timestamp - a.timestamp);
-      setCallsList(calls);
-    });
-    return () => unsubscribe();
+    let cancelled = false;
+
+    const loadCalls = () => {
+      supabase
+        .from('calls')
+        .select('*')
+        .contains('members', [currentUser.id])
+        .then(({ data, error }) => {
+          if (error) console.error('Failed to load call log', error);
+          if (!cancelled && data) {
+            const calls = (data as CallRecord[]).slice().sort((a, b) => b.timestamp - a.timestamp);
+            setCallsList(calls);
+          }
+        });
+    };
+    loadCalls();
+
+    const channel = supabase
+      .channel(`calls-${currentUser.id}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'calls' },
+        (payload) => {
+          const row = (payload.new ?? payload.old) as (CallRecord & { members: string[] }) | undefined;
+          if (row?.members?.includes(currentUser.id)) loadCalls();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      cancelled = true;
+      supabase.removeChannel(channel);
+    };
   }, [currentUser]);
 
   // A single, real "this device" entry — actual multi-device session tracking
@@ -317,13 +427,16 @@ export default function App() {
     );
 
     try {
-      // 1. Add message to the subcollection
-      const msgRef = doc(collection(db, 'conversations', activeConversation.id, 'messages'), newMsg.id);
-      await setDoc(msgRef, newMsg);
+      // 1. Insert the message row
+      const { error: msgError } = await supabase.from('messages').insert(newMsg);
+      if (msgError) throw msgError;
 
-      // 2. Update last message on conversation
-      const convRef = doc(db, 'conversations', activeConversation.id);
-      await setDoc(convRef, { lastMessage: newMsg, unreadCount: activeConversation.unreadCount + 1 }, { merge: true });
+      // 2. Update last message preview on the conversation
+      const { error: convError } = await supabase
+        .from('conversations')
+        .update({ lastMessage: newMsg, unreadCount: activeConversation.unreadCount + 1 })
+        .eq('id', activeConversation.id);
+      if (convError) throw convError;
     } catch (e) {
       console.error("Error sending message", e);
     }
@@ -348,7 +461,7 @@ export default function App() {
       `statuses/${currentUser.id}/${now}_${file.name}`,
       file
     );
-    await addDoc(collection(db, 'statuses'), {
+    const { error } = await supabase.from('statuses').insert({
       authorId: currentUser.id,
       authorUsername: currentUser.username,
       authorDisplayName: currentUser.displayName,
@@ -363,20 +476,16 @@ export default function App() {
       viewsCount: 0,
       likedBy: [],
     });
+    if (error) console.error('Failed to post status', error);
   };
 
   const handleToggleStatusLike = async (storyUserId: string, itemId: string) => {
     if (!currentUser) return;
-    const story = statusStories.find((s) => s.userId === storyUserId);
-    const item = story?.items.find((i) => i.id === itemId);
-    const statusRef = doc(db, 'statuses', itemId);
-    try {
-      await updateDoc(statusRef, {
-        likedBy: item?.hasLiked ? arrayRemove(currentUser.id) : arrayUnion(currentUser.id),
-      });
-    } catch (e) {
-      console.error('Error toggling status like', e);
-    }
+    const { error } = await supabase.rpc('toggle_status_like', {
+      status_id: itemId,
+      liker_id: currentUser.id,
+    });
+    if (error) console.error('Error toggling status like', error);
   };
 
   const handleSendStatusReply = async (contactId: string, replyText: string, statusItem: StatusItem) => {
@@ -402,7 +511,10 @@ export default function App() {
         createdAt: Date.now(),
       };
       try {
-        await setDoc(doc(db, 'conversations', conv.id), conv);
+        const { error } = await supabase
+          .from('conversations')
+          .upsert(conv, { onConflict: 'id', ignoreDuplicates: true });
+        if (error) throw error;
       } catch (e) {
         console.error('Failed to create conversation for status reply', e);
       }
@@ -423,8 +535,13 @@ export default function App() {
     };
 
     try {
-      await setDoc(doc(collection(db, 'conversations', conv.id, 'messages'), newMsg.id), newMsg);
-      await setDoc(doc(db, 'conversations', conv.id), { lastMessage: newMsg }, { merge: true });
+      const { error: msgError } = await supabase.from('messages').insert(newMsg);
+      if (msgError) throw msgError;
+      const { error: convError } = await supabase
+        .from('conversations')
+        .update({ lastMessage: newMsg })
+        .eq('id', conv.id);
+      if (convError) throw convError;
     } catch (e) {
       console.error('Failed to send status reply', e);
     }
@@ -460,7 +577,10 @@ export default function App() {
       };
       
       try {
-        await setDoc(doc(db, 'conversations', newConv.id), newConv);
+        const { error } = await supabase
+          .from('conversations')
+          .upsert(newConv, { onConflict: 'id', ignoreDuplicates: true });
+        if (error) throw error;
       } catch (e) {
         console.error("Failed to create conversation", e);
       }
@@ -471,11 +591,8 @@ export default function App() {
   };
 
   const handleCreateGroup = async (newGroup: Conversation) => {
-    try {
-      await setDoc(doc(db, 'conversations', newGroup.id), newGroup);
-    } catch (e) {
-      console.error('Failed to create group', e);
-    }
+    const { error } = await supabase.from('conversations').insert(newGroup);
+    if (error) console.error('Failed to create group', error);
     setActiveConversation(newGroup);
     setActiveTab('chats');
   };
@@ -516,10 +633,11 @@ export default function App() {
         isEncrypted: true,
       };
       try {
-        await setDoc(doc(db, 'calls', newRecord.id), {
+        const { error } = await supabase.from('calls').insert({
           ...newRecord,
           members: [currentUser.id, activeCall.peerId],
         });
+        if (error) throw error;
       } catch (e) {
         console.error('Failed to save call record', e);
       }
@@ -673,7 +791,11 @@ export default function App() {
                   onUpdateProfile={async (updated) => {
                     setCurrentUser((u) => (u ? { ...u, ...updated } : null));
                     try {
-                      await updateDoc(doc(db, 'users', currentUser.id), updated);
+                      const { error } = await supabase
+                        .from('profiles')
+                        .update(updated)
+                        .eq('id', currentUser.id);
+                      if (error) throw error;
                     } catch (e) {
                       console.error('Failed to persist profile update', e);
                     }
@@ -683,7 +805,11 @@ export default function App() {
                       `avatars/${currentUser.id}/${Date.now()}_${file.name}`,
                       file
                     );
-                    await updateDoc(doc(db, 'users', currentUser.id), { avatarUrl });
+                    const { error } = await supabase
+                      .from('profiles')
+                      .update({ avatarUrl })
+                      .eq('id', currentUser.id);
+                    if (error) console.error('Failed to persist avatar update', error);
                     setCurrentUser((u) => (u ? { ...u, avatarUrl } : null));
                   }}
                   onUnlinkDevice={(id) =>

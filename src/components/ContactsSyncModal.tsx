@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { motion } from 'motion/react';
 import { SyncedContact, Conversation, User } from '../types';
-import { db, collection, query, where, getDocs } from '../lib/firebase';
+
 import {
   Users,
   Search,
