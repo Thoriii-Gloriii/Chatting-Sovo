@@ -27,6 +27,8 @@ import {
   Camera,
 } from 'lucide-react';
 import { sound } from '../lib/sound';
+import InviteButton from './InviteButton';
+import { supabase } from '../lib/supabase';
 import { validateImageFile } from '../lib/upload';
 
 interface SettingsViewProps {
@@ -456,8 +458,14 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           </div>
         </div>
 
-        {/* Section: Master E2EE Safety Keys & Sign Out */}
+        {/* Section: Invite, Master E2EE Safety Keys & Sign Out */}
         <div className="pt-2 space-y-2">
+          {/* InviteButton and the whole invite-link flow shipped as dead code —
+              nothing ever rendered it or called consumePendingInvite(). */}
+          <div className="rounded-2xl bg-[#12121a] border border-[#272635] overflow-hidden">
+            <InviteButton supabase={supabase} />
+          </div>
+
           <button
             type="button"
             onClick={() => {

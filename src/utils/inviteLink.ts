@@ -13,7 +13,15 @@
  *   3. Call consumePendingInvite(supabase, currentUserId) → opens a direct chat
  */
 
-import { createClient } from "@supabase/supabase-js";
+import type { SupabaseClient } from "@supabase/supabase-js";
+
+/**
+ * The generated client type narrows rpc() argument types to `never` when no
+ * database schema types are generated, which made every rpc call here a type
+ * error. These RPCs are defined in supabase/schema.sql; use a loose client
+ * type so the calls type-check against the real runtime signature.
+ */
+type AnyClient = SupabaseClient<any, any, any>;
 
 const INVITE_STORAGE_KEY = "sovo_pending_invite";
 
@@ -27,7 +35,7 @@ const APP_BASE = `${window.location.origin}${window.location.pathname.replace(/\
  * Creates one automatically if it doesn't exist yet.
  */
 export async function getOrCreateInviteCode(
-  supabase: ReturnType<typeof createClient>
+  supabase: AnyClient
 ): Promise<string> {
   const { data, error } = await supabase.rpc("get_my_invite_code");
   if (error) throw error;
@@ -99,7 +107,7 @@ export function captureInviteFromUrl(): void {
  * Returns the conversationId if a chat was opened, or null otherwise.
  */
 export async function consumePendingInvite(
-  supabase: ReturnType<typeof createClient>,
+  supabase: AnyClient,
   currentUserId: string
 ): Promise<string | null> {
   const code = localStorage.getItem(INVITE_STORAGE_KEY);

@@ -24,6 +24,7 @@ import {
   Image as ImageIcon,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
+import { validateAttachment, MAX_ATTACHMENT_BYTES } from '../lib/upload';
 
 interface StatusReelsViewProps {
   stories: UserStatusStory[];
@@ -56,7 +57,9 @@ export const StatusReelsView: React.FC<StatusReelsViewProps> = ({
   const [newMediaPreviewUrl, setNewMediaPreviewUrl] = useState<string | null>(null);
   const [isPosting, setIsPosting] = useState(false);
   const [postError, setPostError] = useState('');
+  const [postProgress, setPostProgress] = useState<number | null>(null);
   const statusFileInputRef = useRef<HTMLInputElement>(null);
+  const reelVideoRef = useRef<HTMLVideoElement>(null);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const activeUserStory = stories[currentUserIndex] || stories[0];
@@ -66,12 +69,27 @@ export const StatusReelsView: React.FC<StatusReelsViewProps> = ({
   useEffect(() => {
     if (!activeItem || isPaused || showAddModal) return;
 
+    // Images advance on a fixed beat; a video gets its own length (capped) so
+    // a 30-second clip is not cut off after 6.5 seconds.
+    const slideMs = activeItem.mediaType === 'video' ? 30_000 : 6_500;
     const timer = setInterval(() => {
       handleNextItem();
-    }, 6500); // 6.5s per status slide
+    }, slideMs);
 
     return () => clearInterval(timer);
   }, [currentUserIndex, currentItemIndex, isPaused, showAddModal, activeItem]);
+
+  // Keep the <video> element in step with the reel's pause and mute controls.
+  useEffect(() => {
+    const el = reelVideoRef.current;
+    if (!el) return;
+    el.muted = isMuted;
+    if (isPaused || showAddModal) {
+      el.pause();
+    } else {
+      void el.play().catch(() => undefined);
+    }
+  }, [isPaused, isMuted, showAddModal, activeItem?.id]);
 
   const handleNextItem = () => {
     if (!activeUserStory) return;
@@ -151,14 +169,36 @@ export const StatusReelsView: React.FC<StatusReelsViewProps> = ({
   const handleMediaFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+
     if (!file.type.startsWith('image/') && !file.type.startsWith('video/')) {
       setPostError('Please choose an image or video file.');
       return;
     }
+
+    const problem = validateAttachment(file, MAX_ATTACHMENT_BYTES);
+    if (problem) {
+      setPostError(problem);
+      e.target.value = '';
+      return;
+    }
+
     setPostError('');
     setNewMediaFile(file);
-    setNewMediaPreviewUrl(URL.createObjectURL(file));
+    // Free the previous preview before replacing it — these were leaking one
+    // blob URL per file the user previewed.
+    setNewMediaPreviewUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return URL.createObjectURL(file);
+    });
   };
+
+  // Release the outstanding preview URL when the view unmounts.
+  useEffect(() => {
+    return () => {
+      if (newMediaPreviewUrl) URL.revokeObjectURL(newMediaPreviewUrl);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleCreateStatus = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -168,17 +208,23 @@ export const StatusReelsView: React.FC<StatusReelsViewProps> = ({
     }
     sound.playSend();
     setIsPosting(true);
+    setPostProgress(5);
     setPostError('');
     try {
       await onAddStatus(newMediaFile, newCaption || '', newDuration, newPrivacy);
+      setPostProgress(100);
       setShowAddModal(false);
       setNewCaption('');
       setNewMediaFile(null);
-      setNewMediaPreviewUrl(null);
+      setNewMediaPreviewUrl((prev) => {
+        if (prev) URL.revokeObjectURL(prev);
+        return null;
+      });
     } catch (err: any) {
       setPostError(err?.message || 'Failed to post status.');
     } finally {
       setIsPosting(false);
+      setPostProgress(null);
     }
   };
 
@@ -303,12 +349,28 @@ export const StatusReelsView: React.FC<StatusReelsViewProps> = ({
           onTouchStart={() => setIsPaused(true)}
           onTouchEnd={() => setIsPaused(false)}
         >
-          {/* Background image / video display */}
-          <img
-            src={activeItem.mediaUrl}
-            alt={activeItem.caption}
-            className="w-full h-full object-cover transform scale-100 transition-transform duration-700"
-          />
+          {/* Background media. This was an <img> for every status, so a video
+              status — which the composer has always allowed — rendered as a
+              broken image. Pick the element from the item's mediaType. */}
+          {activeItem.mediaType === 'video' ? (
+            <video
+              ref={reelVideoRef}
+              key={activeItem.id}
+              src={activeItem.mediaUrl}
+              className="w-full h-full object-cover"
+              autoPlay
+              playsInline
+              loop
+              muted={isMuted}
+              preload="auto"
+            />
+          ) : (
+            <img
+              src={activeItem.mediaUrl}
+              alt={activeItem.caption}
+              className="w-full h-full object-cover transform scale-100 transition-transform duration-700"
+            />
+          )}
 
           {/* Gradient overlays for top and bottom readability */}
           <div className="absolute inset-0 bg-gradient-to-b from-black/60 via-transparent to-black/90 pointer-events-none" />

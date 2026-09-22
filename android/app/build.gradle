@@ -7,8 +7,8 @@ android {
         applicationId "com.sovo.chat"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        versionCode 3
+        versionName "1.2"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -34,6 +34,10 @@ android {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            // Signed with the committed debug key so `assembleRelease` produces
+            // an installable APK. Swap in a real upload key before Play Store
+            // distribution.
+            signingConfig signingConfigs.debug
         }
     }
 }
@@ -55,11 +59,11 @@ dependencies {
     androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
     implementation project(':capacitor-cordova-android-plugins')
 
-    // Firebase BOM — manages all Firebase library versions
-    implementation platform('com.google.firebase:firebase-bom:34.0.0')
-    implementation 'com.google.firebase:firebase-analytics'
-    implementation 'com.google.firebase:firebase-auth'
-    implementation 'com.google.firebase:firebase-firestore'
+    // No Firebase SDKs: auth, database, realtime and storage all moved to
+    // Supabase (commit e9d2c04). firebase-auth/firestore/analytics were still
+    // being compiled in and shipped in the APK without a single call site.
+    // google-services.json is kept only because the Google Sign-In plugin
+    // reads the OAuth client config out of it.
 }
 
 apply from: 'capacitor.build.gradle'

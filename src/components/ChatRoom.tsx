@@ -1,5 +1,6 @@
 import { supabase } from '../lib/supabase';
-import { uploadFileToStorage } from '../lib/upload';
+import { uploadFileToStorage, MAX_ATTACHMENT_BYTES, validateAttachment } from '../lib/upload';
+import { parseEncryptedText, decryptMessage } from '../crypto/e2ee';
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Conversation, Message, User, UserSettings, MediaType } from '../types';
@@ -32,6 +33,8 @@ import {
   Play,
   Pause,
   Trash2,
+  Camera,
+  AlertCircle,
 } from 'lucide-react';
 
 interface ChatRoomProps {
@@ -83,7 +86,9 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
         if (data) setMessages(data as Message[]);
       });
 
-    // Realtime subscription for new messages
+    // Realtime subscription. INSERT alone was not enough: reactions and
+    // delivery-status changes are UPDATEs, so without this second handler they
+    // were written to the database and never reflected in an open chat.
     const channel = supabase
       .channel(`messages:${conversation.id}`)
       .on(
@@ -94,6 +99,22 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
             const already = prev.some((m) => m.id === payload.new.id);
             return already ? prev : [...prev, payload.new as Message];
           });
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'messages', filter: `conversationId=eq.${conversation.id}` },
+        (payload) => {
+          const updated = payload.new as Message;
+          setMessages((prev) => prev.map((m) => (m.id === updated.id ? { ...m, ...updated } : m)));
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: 'DELETE', schema: 'public', table: 'messages', filter: `conversationId=eq.${conversation.id}` },
+        (payload) => {
+          const gone = payload.old as { id?: string };
+          if (gone?.id) setMessages((prev) => prev.filter((m) => m.id !== gone.id));
         }
       )
       .subscribe();
@@ -108,8 +129,17 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
   const [playingAudioId, setPlayingAudioId] = useState<string | null>(null);
   const [selectedReactionMsgId, setSelectedReactionMsgId] = useState<string | null>(null);
 
+  const [attachError, setAttachError] = useState<string | null>(null);
+  const [plainText, setPlainText] = useState<Record<string, string>>({});
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  // Separate pickers: one generic file chooser cannot express "photos only",
+  // "videos only" or "open the camera", so all three attachment buttons used
+  // to open the same accept="*/*" dialog.
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const photoInputRef = useRef<HTMLInputElement>(null);
+  const videoInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordedChunksRef = useRef<Blob[]>([]);
   const mediaStreamRef = useRef<MediaStream | null>(null);
@@ -118,6 +148,38 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, uploadProgress]);
+
+  // Direct-chat message bodies are stored as an encrypted JSON payload. Without
+  // this pass the bubble rendered the raw ciphertext JSON, which is what the
+  // E2EE banner was promising to protect but nothing was ever unwrapping.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const updates: Record<string, string> = {};
+      for (const msg of messages) {
+        if (!msg.text || plainText[msg.id] !== undefined) continue;
+        const payload = parseEncryptedText(msg.text);
+        if (!payload) continue;
+        const decoded = await decryptMessage(payload, msg.senderId === currentUser.id);
+        updates[msg.id] =
+          decoded ?? 'This message was encrypted for another device and cannot be opened here.';
+      }
+      if (!cancelled && Object.keys(updates).length) {
+        setPlainText((prev) => ({ ...prev, ...updates }));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages, currentUser.id]);
+
+  /** The text to show for a bubble: decrypted when encrypted, as-is otherwise. */
+  const textOf = (msg: Message): string => {
+    if (!msg.text) return '';
+    if (!parseEncryptedText(msg.text)) return msg.text;
+    return plainText[msg.id] ?? 'Decrypting…';
+  };
 
   // Voice recording timer
   useEffect(() => {
@@ -141,19 +203,20 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+    const input = e.target;
+    const file = input.files?.[0];
     if (!file) return;
 
-    // Real uploads go to Firebase Storage, so keep this within a sane free-tier limit.
-    const maxBytes = 25 * 1024 * 1024; // 25MB
-    if (file.size > maxBytes) {
-      alert('File exceeds the 25MB sharing limit.');
-      e.target.value = '';
+    const problem = validateAttachment(file, MAX_ATTACHMENT_BYTES);
+    if (problem) {
+      setAttachError(problem);
+      input.value = '';
       return;
     }
 
+    setAttachError(null);
     setShowAttachMenu(false);
-    setUploadProgress(10);
+    setUploadProgress(5);
     sound.playTap();
 
     const formattedSize = formatFileSize(file.size);
@@ -165,15 +228,13 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
     if (isImage) mediaType = 'image';
     else if (isVideo) mediaType = 'video';
     else if (isAudio) mediaType = 'audio';
-    else if (file.size > 15 * 1024 * 1024) mediaType = 'encrypted_file';
 
     try {
-      setUploadProgress(40);
       const url = await uploadFileToStorage(
         `chat-media/${conversation.id}/${Date.now()}_${file.name}`,
-        file
+        file,
+        { onProgress: setUploadProgress, contentType: file.type }
       );
-      setUploadProgress(100);
       sound.playSend();
       onSendMessage('', {
         url,
@@ -184,29 +245,94 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
       });
     } catch (err) {
       console.error('File upload failed', err);
-      alert('Failed to upload file. Please try again.');
+      setAttachError(
+        err instanceof Error ? err.message : 'Failed to upload that file. Please try again.'
+      );
     } finally {
       setUploadProgress(null);
-      e.target.value = '';
+      input.value = '';
     }
   };
 
+  /** Opens a picker and closes the attachment sheet behind it. */
+  const openPicker = (ref: React.RefObject<HTMLInputElement | null>) => {
+    sound.playTap();
+    setAttachError(null);
+    setShowAttachMenu(false);
+    ref.current?.click();
+  };
+
+  /**
+   * MediaRecorder support differs by engine. Passing no mimeType leaves the
+   * container to the browser and produced files the receiving side could not
+   * always decode, so negotiate an explicitly supported one and keep the
+   * matching file extension.
+   */
+  const pickRecordingFormat = (): { mimeType?: string; extension: string } => {
+    const candidates: Array<{ mimeType: string; extension: string }> = [
+      { mimeType: 'audio/webm;codecs=opus', extension: 'webm' },
+      { mimeType: 'audio/webm', extension: 'webm' },
+      { mimeType: 'audio/ogg;codecs=opus', extension: 'ogg' },
+      { mimeType: 'audio/mp4', extension: 'm4a' },
+    ];
+    for (const option of candidates) {
+      if (typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported?.(option.mimeType)) {
+        return option;
+      }
+    }
+    return { extension: 'webm' };
+  };
+
+  const recordingFormatRef = useRef<{ mimeType?: string; extension: string }>({ extension: 'webm' });
+
   const handleStartVoiceRecord = async () => {
+    setAttachError(null);
+    sound.resume();
+
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+      setAttachError('Voice notes are not supported on this device.');
+      return;
+    }
+
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      });
       mediaStreamRef.current = stream;
       recordedChunksRef.current = [];
-      const recorder = new MediaRecorder(stream);
+
+      const format = pickRecordingFormat();
+      recordingFormatRef.current = format;
+
+      const recorder = format.mimeType
+        ? new MediaRecorder(stream, { mimeType: format.mimeType })
+        : new MediaRecorder(stream);
+
       recorder.ondataavailable = (ev) => {
         if (ev.data.size > 0) recordedChunksRef.current.push(ev.data);
       };
+      recorder.onerror = () => {
+        stopRecordingStream();
+        setIsRecordingVoice(false);
+        setAttachError('Recording stopped unexpectedly. Please try again.');
+      };
+
       mediaRecorderRef.current = recorder;
-      recorder.start();
+      // Timeslice so long recordings flush progressively instead of buffering
+      // the whole clip in one blob at stop().
+      recorder.start(1000);
       sound.playTap();
       setIsRecordingVoice(true);
     } catch (err) {
       console.error('Microphone access failed', err);
-      alert('Could not access the microphone. Check your browser/app permissions.');
+      const name = (err as DOMException)?.name;
+      setAttachError(
+        name === 'NotAllowedError' || name === 'SecurityError'
+          ? 'Microphone access was denied. Enable the microphone permission for S\u2019ovo in Android settings.'
+          : name === 'NotFoundError'
+          ? 'No microphone was found on this device.'
+          : 'Could not access the microphone.'
+      );
     }
   };
 
@@ -217,43 +343,92 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
 
   const handleFinishVoiceRecord = () => {
     const recorder = mediaRecorderRef.current;
-    if (!recorder || recordSeconds < 1) {
+    if (!recorder) {
       stopRecordingStream();
       setIsRecordingVoice(false);
       return;
     }
+
+    // A sub-second tap is a cancel, not a send — but the recorder still has to
+    // be stopped, otherwise it stays live and leaks into the next recording.
+    if (recordSeconds < 1) {
+      try {
+        if (recorder.state !== 'inactive') recorder.stop();
+      } catch {
+        // already stopped
+      }
+      mediaRecorderRef.current = null;
+      stopRecordingStream();
+      setIsRecordingVoice(false);
+      return;
+    }
+
+    const durationSeconds = recordSeconds;
+    const { extension } = recordingFormatRef.current;
+
     recorder.onstop = async () => {
       stopRecordingStream();
-      const blob = new Blob(recordedChunksRef.current, { type: recorder.mimeType || 'audio/webm' });
+      mediaRecorderRef.current = null;
+
+      const mimeType = recorder.mimeType || recordingFormatRef.current.mimeType || 'audio/webm';
+      const blob = new Blob(recordedChunksRef.current, { type: mimeType });
+      recordedChunksRef.current = [];
       setIsRecordingVoice(false);
-      setUploadProgress(50);
+
+      if (blob.size === 0) {
+        setAttachError('That recording came out empty. Please try again.');
+        return;
+      }
+
+      setUploadProgress(5);
+      const fileName = `Voice_${new Date().toISOString().replace(/[:.]/g, '-')}.${extension}`;
       try {
         const url = await uploadFileToStorage(
-          `chat-media/${conversation.id}/${Date.now()}_voice.webm`,
-          blob
+          `chat-media/${conversation.id}/${Date.now()}_${fileName}`,
+          blob,
+          { onProgress: setUploadProgress, contentType: mimeType }
         );
         sound.playSend();
         onSendMessage('', {
           url,
           type: 'voice_note',
-          fileName: `Voice_${Date.now().toString().slice(-4)}.webm`,
+          fileName,
           fileSize: formatFileSize(blob.size),
           fileSizeBytes: blob.size,
-          duration: recordSeconds,
+          duration: durationSeconds,
         });
       } catch (err) {
         console.error('Voice note upload failed', err);
-        alert('Failed to send voice note. Please try again.');
+        setAttachError(
+          err instanceof Error ? err.message : 'Failed to send that voice note. Please try again.'
+        );
       } finally {
         setUploadProgress(null);
       }
     };
-    recorder.stop();
+
+    try {
+      if (recorder.state !== 'inactive') recorder.stop();
+    } catch {
+      stopRecordingStream();
+      setIsRecordingVoice(false);
+    }
   };
 
   const handleCancelVoiceRecord = () => {
     sound.playTap();
-    mediaRecorderRef.current?.stop();
+    const recorder = mediaRecorderRef.current;
+    if (recorder) {
+      // Drop the onstop handler first so cancelling never uploads the clip.
+      recorder.onstop = null;
+      try {
+        if (recorder.state !== 'inactive') recorder.stop();
+      } catch {
+        // already stopped
+      }
+    }
+    mediaRecorderRef.current = null;
+    recordedChunksRef.current = [];
     stopRecordingStream();
     setIsRecordingVoice(false);
   };
@@ -269,11 +444,33 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
     if (!audioPlayerRef.current) {
       audioPlayerRef.current = new Audio();
       audioPlayerRef.current.onended = () => setPlayingAudioId(null);
+      audioPlayerRef.current.onerror = () => {
+        setPlayingAudioId(null);
+        setAttachError('That audio clip could not be played.');
+      };
     }
-    audioPlayerRef.current.src = url;
-    audioPlayerRef.current.play().catch((err) => console.error('Audio playback failed', err));
-    setPlayingAudioId(msgId);
+    const player = audioPlayerRef.current;
+    player.pause();
+    player.src = url;
+    player.currentTime = 0;
+    player
+      .play()
+      .then(() => setPlayingAudioId(msgId))
+      .catch((err) => {
+        console.error('Audio playback failed', err);
+        setPlayingAudioId(null);
+        setAttachError('That audio clip could not be played.');
+      });
   };
+
+  useEffect(() => {
+    return () => {
+      audioPlayerRef.current?.pause();
+      audioPlayerRef.current = null;
+      mediaRecorderRef.current?.stream?.getTracks().forEach((t) => t.stop());
+      mediaStreamRef.current?.getTracks().forEach((t) => t.stop());
+    };
+  }, []);
 
   const formatAudioDuration = (seconds?: number) => {
     const total = seconds || 0;
@@ -287,13 +484,30 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
       className="flex flex-col h-[calc(100vh-68px)] md:h-[calc(100vh-80px)] w-full max-w-4xl mx-auto bg-[#07070b] border-x border-[#1c1b24] shadow-2xl relative select-none"
       id="sovo-chat-room"
     >
-      {/* Hidden file picker input */}
+      {/* Hidden pickers — one per attachment kind so the OS shows the right
+          chooser (gallery / video library / camera) instead of a raw file list. */}
+      <input ref={fileInputRef} type="file" onChange={handleFileUpload} className="hidden" accept="*/*" />
       <input
-        ref={fileInputRef}
+        ref={photoInputRef}
         type="file"
         onChange={handleFileUpload}
         className="hidden"
-        accept="*/*"
+        accept="image/*"
+      />
+      <input
+        ref={videoInputRef}
+        type="file"
+        onChange={handleFileUpload}
+        className="hidden"
+        accept="video/*"
+      />
+      <input
+        ref={cameraInputRef}
+        type="file"
+        onChange={handleFileUpload}
+        className="hidden"
+        accept="image/*,video/*"
+        capture="environment"
       />
 
       {/* Top Navigation Bar */}
@@ -450,17 +664,26 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
                 {/* Media rendering: Photos, Videos, Documents up to 2GB, Audio */}
                 {msg.mediaType === 'image' && msg.mediaUrl && (
                   <div className="rounded-xl overflow-hidden mb-2 border border-black/40">
-                    <img
-                      src={msg.mediaUrl}
-                      alt="Encrypted attachment"
-                      className="w-full max-h-72 object-cover"
-                    />
+                    <a href={msg.mediaUrl} target="_blank" rel="noreferrer">
+                      <img
+                        src={msg.mediaUrl}
+                        alt={msg.fileName || 'Shared photo'}
+                        loading="lazy"
+                        className="w-full max-h-72 object-cover"
+                      />
+                    </a>
                   </div>
                 )}
 
                 {msg.mediaType === 'video' && msg.mediaUrl && (
                   <div className="rounded-xl overflow-hidden mb-2 border border-black/40 bg-black">
-                    <video src={msg.mediaUrl} controls className="w-full max-h-72" />
+                    <video
+                      src={msg.mediaUrl}
+                      controls
+                      playsInline
+                      preload="metadata"
+                      className="w-full max-h-72"
+                    />
                   </div>
                 )}
 
@@ -475,24 +698,29 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
                         {msg.fileName || 'Encrypted_Payload.bin'}
                       </p>
                       <p className="text-[10px] text-[#ffd700] font-mono">
-                        {msg.fileSize || '1.8 GB'} • 2GB S'ovo Stream
+                        {msg.fileSize || 'Attachment'} • Encrypted transfer
                       </p>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        sound.playTap();
-                        alert(`Downloading encrypted file: ${msg.fileName}`);
-                      }}
+                    {/* Previously this only popped an alert() saying it was
+                        downloading — nothing was ever fetched. A real anchor
+                        hands the URL to the WebView's DownloadListener
+                        (see MainActivity), which saves it via DownloadManager. */}
+                    <a
+                      href={msg.mediaUrl}
+                      download={msg.fileName || 'sovo-attachment'}
+                      target="_blank"
+                      rel="noreferrer"
+                      onClick={() => sound.playTap()}
                       className="p-2 rounded-lg bg-[#191924] hover:bg-[#282738] text-[#d4af37] cursor-pointer transition"
+                      title={`Download ${msg.fileName || 'attachment'}`}
                     >
                       <Download className="w-4 h-4" />
-                    </button>
+                    </a>
                   </div>
                 )}
 
                 {/* Voice Note Attachment Player */}
-                {msg.mediaType === 'voice_note' && (
+                {(msg.mediaType === 'voice_note' || msg.mediaType === 'audio') && (
                   <div className="flex items-center gap-2.5 p-2 rounded-xl bg-[#09090e] border border-[#272635] mb-1.5 min-w-[200px]">
                     <button
                       type="button"
@@ -529,10 +757,10 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
                   </div>
                 )}
 
-                {/* Text Message Content */}
-                {msg.text && (
+                {/* Text Message Content (decrypted for E2EE direct chats) */}
+                {textOf(msg) && (
                   <p className="text-xs sm:text-sm leading-relaxed whitespace-pre-wrap break-words">
-                    {msg.text}
+                    {textOf(msg)}
                   </p>
                 )}
 
@@ -600,7 +828,7 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
           <div className="max-w-[80%] ml-auto p-3 rounded-2xl bg-[#1a170e] border border-[#ffd700]/50 text-white shadow-lg animate-fadeIn">
             <div className="flex items-center justify-between text-xs mb-1.5">
               <span className="font-semibold text-[#ffd700] flex items-center gap-1.5">
-                <Sparkles className="w-3.5 h-3.5" /> Encrypting 2GB File Stream...
+                <Sparkles className="w-3.5 h-3.5" /> Uploading attachment…
               </span>
               <span className="font-mono text-[#ffd700]">{uploadProgress}%</span>
             </div>
@@ -623,22 +851,11 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
             initial={{ opacity: 0, y: 10, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 10, scale: 0.95 }}
-            className="absolute bottom-20 left-4 z-30 p-3 bg-[#0d0d14] border border-[#d4af37]/40 rounded-2xl shadow-2xl grid grid-cols-3 gap-2 w-72 text-white"
+            className="absolute bottom-20 left-4 z-30 p-3 bg-[#0d0d14] border border-[#d4af37]/40 rounded-2xl shadow-2xl grid grid-cols-4 gap-2 w-80 text-white"
           >
             <button
               type="button"
-              onClick={() => fileInputRef.current?.click()}
-              className="flex flex-col items-center gap-1.5 p-3 rounded-xl bg-[#14141d] hover:bg-[#1f1e29] border border-[#272635] text-xs font-semibold cursor-pointer"
-            >
-              <div className="p-2 rounded-full bg-[#1c180e] text-[#ffd700]">
-                <FileText className="w-5 h-5" />
-              </div>
-              <span className="text-[11px]">2GB Files</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
+              onClick={() => openPicker(photoInputRef)}
               className="flex flex-col items-center gap-1.5 p-3 rounded-xl bg-[#14141d] hover:bg-[#1f1e29] border border-[#272635] text-xs font-semibold cursor-pointer"
             >
               <div className="p-2 rounded-full bg-[#1c180e] text-[#ffd700]">
@@ -649,20 +866,61 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
 
             <button
               type="button"
-              onClick={() => fileInputRef.current?.click()}
+              onClick={() => openPicker(videoInputRef)}
               className="flex flex-col items-center gap-1.5 p-3 rounded-xl bg-[#14141d] hover:bg-[#1f1e29] border border-[#272635] text-xs font-semibold cursor-pointer"
             >
               <div className="p-2 rounded-full bg-[#1c180e] text-[#ffd700]">
                 <Video className="w-5 h-5" />
               </div>
-              <span className="text-[11px]">4K Video</span>
+              <span className="text-[11px]">Video</span>
             </button>
+
+            <button
+              type="button"
+              onClick={() => openPicker(cameraInputRef)}
+              className="flex flex-col items-center gap-1.5 p-3 rounded-xl bg-[#14141d] hover:bg-[#1f1e29] border border-[#272635] text-xs font-semibold cursor-pointer"
+            >
+              <div className="p-2 rounded-full bg-[#1c180e] text-[#ffd700]">
+                <Camera className="w-5 h-5" />
+              </div>
+              <span className="text-[11px]">Camera</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => openPicker(fileInputRef)}
+              className="flex flex-col items-center gap-1.5 p-3 rounded-xl bg-[#14141d] hover:bg-[#1f1e29] border border-[#272635] text-xs font-semibold cursor-pointer"
+            >
+              <div className="p-2 rounded-full bg-[#1c180e] text-[#ffd700]">
+                <FileText className="w-5 h-5" />
+              </div>
+              <span className="text-[11px]">File</span>
+            </button>
+
+            <p className="col-span-4 text-center text-[10px] text-gray-500 pt-1">
+              Up to {Math.round(MAX_ATTACHMENT_BYTES / 1024 / 1024)}MB per attachment
+            </p>
           </motion.div>
         )}
       </AnimatePresence>
 
       {/* Bottom Message Input Bar */}
       <footer className="p-3 bg-[#0c0c12]/95 backdrop-blur-md border-t border-[#22212d] z-20">
+        {/* Attachment / microphone failures used to go to alert() or only the
+            console; surface them inline so the cause is visible in the APK. */}
+        {attachError && (
+          <div className="mb-2 flex items-start gap-2 px-3 py-2 rounded-xl bg-red-950/60 border border-red-800/60 text-[11px] text-red-200">
+            <AlertCircle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+            <span className="flex-1">{attachError}</span>
+            <button
+              type="button"
+              onClick={() => setAttachError(null)}
+              className="text-red-300 hover:text-white"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
         {!isRecordingVoice ? (
           <form onSubmit={handleSend} className="flex items-center gap-2">
             {/* Attachment Button */}
@@ -702,7 +960,10 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
             ) : (
               <button
                 type="button"
-                onClick={handleStartVoiceRecord}
+                onClick={() => {
+                  sound.resume();
+                  void handleStartVoiceRecord();
+                }}
                 className="w-11 h-11 rounded-2xl bg-[#18160e] border border-[#d4af37]/40 text-[#ffd700] hover:bg-[#282214] flex items-center justify-center shadow transition active:scale-95 cursor-pointer"
                 title="Record Voice Note"
               >
@@ -720,7 +981,7 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
               <div>
                 <p className="text-xs font-bold text-[#ffd700]">Recording Voice Message</p>
                 <p className="text-[10px] font-mono text-gray-300">
-                  0:0{recordSeconds} • Encrypting audio stream
+                  {formatAudioDuration(recordSeconds)} • Encrypting audio stream
                 </p>
               </div>
             </div>

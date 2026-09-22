@@ -10,10 +10,10 @@
 
 import React, { useState } from "react";
 import { getOrCreateInviteCode, shareInviteLink } from "../utils/inviteLink";
-import { createClient } from "@supabase/supabase-js";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
 interface Props {
-  supabase: ReturnType<typeof createClient>;
+  supabase: SupabaseClient<any, any, any>;
 }
 
 const InviteButton: React.FC<Props> = ({ supabase }) => {

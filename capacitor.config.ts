@@ -16,12 +16,21 @@ const config: CapacitorConfig = {
     },
   },
   server: {
-    // Allow Firebase auth redirects to come back into the WebView
+    // Pin the scheme explicitly. getUserMedia (voice notes, calls) and
+    // crypto.subtle (E2EE key generation) are both gated on the page being a
+    // secure context; serving the bundle over https://localhost guarantees
+    // that instead of relying on the framework default staying put.
+    androidScheme: 'https',
+    hostname: 'localhost',
     allowNavigation: [
+      // Google OAuth sign-in leaves the WebView and comes back
       'accounts.google.com',
       '*.google.com',
-      'fir-ovo.firebaseapp.com',
-      '*.firebaseapp.com',
+      'googleapis.com',
+      '*.googleapis.com',
+      // Supabase auth callback host for the OAuth round-trip
+      'wltqcibehtucglflorga.supabase.co',
+      '*.supabase.co',
     ],
   },
 };

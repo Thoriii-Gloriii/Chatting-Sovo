@@ -6,6 +6,7 @@
 class SoundController {
   private ctx: AudioContext | null = null;
   private enabled: boolean = true;
+  private ringTimer: ReturnType<typeof setInterval> | null = null;
 
   private initCtx() {
     if (!this.ctx && typeof window !== 'undefined') {
@@ -18,6 +19,57 @@ class SoundController {
 
   public setEnabled(val: boolean) {
     this.enabled = val;
+  }
+
+  /**
+   * Browsers create an AudioContext in the "suspended" state until a user
+   * gesture resumes it. Without this, the first few cues after launch are
+   * silently dropped. Call from any tap handler.
+   */
+  public resume() {
+    try {
+      this.initCtx();
+      if (this.ctx && this.ctx.state === 'suspended') void this.ctx.resume();
+    } catch {
+      // ignore
+    }
+  }
+
+  /** Two-tone ring burst, repeated until stopRinging() — used for calls. */
+  public startRinging() {
+    if (this.ringTimer) return;
+    const burst = () => {
+      try {
+        this.initCtx();
+        if (!this.ctx) return;
+        void this.ctx.resume();
+        const now = this.ctx.currentTime;
+        [0, 0.4].forEach((offset) => {
+          const osc = this.ctx!.createOscillator();
+          const gain = this.ctx!.createGain();
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(440, now + offset);
+          gain.gain.setValueAtTime(0.0001, now + offset);
+          gain.gain.exponentialRampToValueAtTime(0.16, now + offset + 0.04);
+          gain.gain.exponentialRampToValueAtTime(0.0001, now + offset + 0.32);
+          osc.connect(gain);
+          gain.connect(this.ctx!.destination);
+          osc.start(now + offset);
+          osc.stop(now + offset + 0.34);
+        });
+      } catch {
+        // ignore
+      }
+    };
+    burst();
+    this.ringTimer = setInterval(burst, 2400);
+  }
+
+  public stopRinging() {
+    if (this.ringTimer) {
+      clearInterval(this.ringTimer);
+      this.ringTimer = null;
+    }
   }
 
   public playSend() {

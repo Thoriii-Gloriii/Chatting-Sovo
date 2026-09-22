@@ -21,13 +21,24 @@ import { BiometricModal } from './components/BiometricModal';
 import { ChatsView } from './components/ChatsView';
 import { ChatRoom } from './components/ChatRoom';
 import { StatusReelsView } from './components/StatusReelsView';
-import { CallsView, ActiveCallOverlay } from './components/CallsView';
+import { CallsView, ActiveCallOverlay, IncomingCallModal } from './components/CallsView';
 import { SettingsView } from './components/SettingsView';
 import { ContactsSyncModal } from './components/ContactsSyncModal';
 import { GroupCreateModal } from './components/GroupCreateModal';
 import { E2EEVerificationModal } from './components/E2EEVerificationModal';
 import { AndroidNavigationBar } from './components/AndroidSystemBar';
 import { sound } from './lib/sound';
+import {
+  SovoCall,
+  listenForIncomingCalls,
+  callingSupported,
+  CallInvite,
+  CallState,
+  CallType,
+  CallEndReason,
+} from './lib/webrtc';
+import { getPublicKeyB64, getKeyFingerprint, encryptMessage } from './crypto/e2ee';
+import { captureInviteFromUrl, consumePendingInvite } from './utils/inviteLink';
 import {
   MessageSquare,
   PlaySquare,
@@ -78,12 +89,21 @@ export default function App() {
   const [showSyncContactsModal, setShowSyncContactsModal] = useState(false);
   const [showGroupCreateModal, setShowGroupCreateModal] = useState(false);
 
-  // Active call state
+  // Active call state. `session` is the live RTCPeerConnection wrapper; the
+  // overlay renders the streams it produces rather than a stock photo.
   const [activeCall, setActiveCall] = useState<{
+    session: SovoCall;
     peerId: string;
     peerName: string;
-    type: 'audio' | 'video';
+    peerAvatar: string;
+    type: CallType;
+    direction: 'incoming' | 'outgoing';
   } | null>(null);
+  const [callState, setCallState] = useState<CallState>('idle');
+  const [localStream, setLocalStream] = useState<MediaStream | null>(null);
+  const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
+  const [callError, setCallError] = useState<string | null>(null);
+  const [incomingInvite, setIncomingInvite] = useState<CallInvite | null>(null);
 
   // Data Collections — all populated from Firestore below, never from mock/fake seed data.
   const [settings, setSettings] = useState<UserSettings>(DEFAULT_SETTINGS);
@@ -124,6 +144,88 @@ export default function App() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Capture ?invite=<code> before any auth redirect can strip it.
+  useEffect(() => {
+    captureInviteFromUrl();
+  }, []);
+
+  // Keep the sound engine in step with the user's preference.
+  useEffect(() => {
+    sound.setEnabled(settings.soundEffects);
+  }, [settings.soundEffects]);
+
+  /**
+   * Publish this device's real E2EE public key.
+   *
+   * Profiles were being created with the literal placeholders 'GEN_KEY' and
+   * 'SOVO-E2EE-GEN', so there was never a key to encrypt to — which is why the
+   * crypto module existed but every message still went out in clear text.
+   */
+  useEffect(() => {
+    if (!currentUser) return;
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const [publicKey, fingerprint] = await Promise.all([
+          getPublicKeyB64(),
+          getKeyFingerprint(),
+        ]);
+        if (cancelled) return;
+        if (currentUser.e2eePublicKey === publicKey) return;
+
+        const readable = `SOVO-E2EE-${fingerprint.slice(0, 4).toUpperCase()}-${fingerprint
+          .slice(4, 8)
+          .toUpperCase()}-${fingerprint.slice(8, 12).toUpperCase()}`;
+
+        const { error } = await supabase
+          .from('profiles')
+          .update({ e2eePublicKey: publicKey, e2eeFingerprint: readable })
+          .eq('id', currentUser.id);
+        if (error) throw error;
+
+        setCurrentUser((u) =>
+          u ? { ...u, e2eePublicKey: publicKey, e2eeFingerprint: readable } : u
+        );
+      } catch (err) {
+        // Messaging still works unencrypted if this fails; don't block the app.
+        console.error('Failed to publish E2EE public key', err);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUser?.id]);
+
+  // Redeem a pending invite link once signed in.
+  useEffect(() => {
+    if (!currentUser) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const convId = await consumePendingInvite(supabase, currentUser.id);
+        if (cancelled || !convId) return;
+        const { data } = await supabase
+          .from('conversations')
+          .select('*')
+          .eq('id', convId)
+          .maybeSingle();
+        if (!cancelled && data) {
+          setActiveConversation(data as Conversation);
+          setActiveTab('chats');
+        }
+      } catch (err) {
+        console.error('Failed to redeem invite link', err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUser?.id]);
 
   const handleSplashComplete = () => {
     if (currentUser) {
@@ -375,6 +477,42 @@ export default function App() {
     ]);
   }, [currentUser]);
 
+  /** Collision-proof id. `msg_${Date.now()}` clashed whenever two messages
+   *  landed in the same millisecond, and the primary key rejected the second. */
+  const newId = (prefix: string) =>
+    typeof crypto !== 'undefined' && 'randomUUID' in crypto
+      ? `${prefix}_${crypto.randomUUID()}`
+      : `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+
+  /** A published RSA public key is base64 SPKI; the old placeholder was 'GEN_KEY'. */
+  const isUsableKey = (key?: string | null) =>
+    !!key && key !== 'GEN_KEY' && key.length > 100;
+
+  const peerKeyCache = React.useRef<Record<string, string | null>>({});
+
+  const fetchPeerPublicKey = async (peerId: string): Promise<string | null> => {
+    if (peerKeyCache.current[peerId] !== undefined) return peerKeyCache.current[peerId];
+    const { data } = await supabase
+      .from('profiles')
+      .select('e2eePublicKey')
+      .eq('id', peerId)
+      .maybeSingle();
+    const key = isUsableKey(data?.e2eePublicKey) ? (data!.e2eePublicKey as string) : null;
+    peerKeyCache.current[peerId] = key;
+    return key;
+  };
+
+  /** Short, readable preview text for the chat list (never raw ciphertext). */
+  const previewFor = (text: string, encrypted: boolean, mediaType?: MediaType) => {
+    if (mediaType === 'image') return '\u{1F4F7} Photo';
+    if (mediaType === 'video') return '\u{1F3A5} Video';
+    if (mediaType === 'voice_note') return '\u{1F3A4} Voice note';
+    if (mediaType === 'audio') return '\u{1F3B5} Audio';
+    if (mediaType === 'document' || mediaType === 'encrypted_file') return '\u{1F4CE} Attachment';
+    if (encrypted) return '\u{1F512} Encrypted message';
+    return text;
+  };
+
   // Message sending handler
   const handleSendMessage = async (
     text: string,
@@ -389,57 +527,106 @@ export default function App() {
   ) => {
     if (!activeConversation || !currentUser) return;
 
+    // Encrypt direct-chat text. Group chats stay in clear text for now (wrapping
+    // a key for up to 500 members per message is not viable), and if the peer
+    // has not published a key yet we send readable text rather than dropping
+    // the message — but we do not then claim it was encrypted.
+    let storedText = text;
+    let encrypted = false;
+
+    if (text && activeConversation.type === 'direct') {
+      const peerId = activeConversation.members.find((m) => m !== currentUser.id);
+      if (peerId) {
+        try {
+          const peerKey = await fetchPeerPublicKey(peerId);
+          if (peerKey) {
+            storedText = JSON.stringify(await encryptMessage(text, peerKey));
+            encrypted = true;
+          }
+        } catch (err) {
+          console.error('Encryption failed; sending unencrypted', err);
+        }
+      }
+    }
+
+    const timestamp = Date.now();
     const newMsg: Message = {
-      id: `msg_${Date.now()}`,
+      id: newId('msg'),
       conversationId: activeConversation.id,
       senderId: currentUser.id,
       senderName: currentUser.displayName,
       senderAvatar: currentUser.avatarUrl,
-      text: text,
+      text: storedText,
       mediaUrl: mediaData?.url,
       mediaType: mediaData?.type,
       fileName: mediaData?.fileName,
       fileSize: mediaData?.fileSize,
       fileSizeBytes: mediaData?.fileSizeBytes,
       audioDurationSeconds: mediaData?.duration,
-      isEncrypted: true,
+      isEncrypted: encrypted,
       e2eeFingerprint: activeConversation.e2eeKeyFingerprint,
-      status: 'read', // simulate instant read when receipts enabled
-      timestamp: Date.now(),
+      // 'sent' is what we can actually attest to. It was hardcoded to 'read',
+      // so every message showed blue double-ticks the instant it left, whether
+      // or not anyone had opened the chat.
+      status: 'sent',
+      timestamp,
     };
 
-    // Update messages map
     setMessagesMap((prev) => ({
       ...prev,
       [activeConversation.id]: [...(prev[activeConversation.id] || []), newMsg],
     }));
 
-    // Update conversation last message preview
+    const preview: Message = {
+      ...newMsg,
+      text: previewFor(text, encrypted, mediaData?.type),
+    };
+
     setConversations((prev) =>
-      prev.map((c) =>
-        c.id === activeConversation.id
-          ? {
-              ...c,
-              lastMessage: newMsg,
-            }
-          : c
-      )
+      prev.map((c) => (c.id === activeConversation.id ? { ...c, lastMessage: preview } : c))
     );
 
     try {
-      // 1. Insert the message row
       const { error: msgError } = await supabase.from('messages').insert(newMsg);
       if (msgError) throw msgError;
 
-      // 2. Update last message preview on the conversation
+      // Only the conversation preview is updated here. unreadCount used to be
+      // incremented by the *sender*, so your own outgoing messages inflated
+      // your own unread badge.
       const { error: convError } = await supabase
         .from('conversations')
-        .update({ lastMessage: newMsg, unreadCount: activeConversation.unreadCount + 1 })
+        .update({ lastMessage: preview })
         .eq('id', activeConversation.id);
       if (convError) throw convError;
     } catch (e) {
-      console.error("Error sending message", e);
+      console.error('Error sending message', e);
+      setMessagesMap((prev) => ({
+        ...prev,
+        [activeConversation.id]: (prev[activeConversation.id] || []).map((m) =>
+          m.id === newMsg.id ? { ...m, status: 'sending' } : m
+        ),
+      }));
     }
+  };
+
+  /** Persists a reaction so the other side actually sees it. */
+  const handleToggleReaction = async (messageId: string, emoji: string) => {
+    if (!currentUser) return;
+    const { data, error } = await supabase
+      .from('messages')
+      .select('userReaction')
+      .eq('id', messageId)
+      .maybeSingle();
+    if (error) {
+      console.error('Failed to read reaction', error);
+      return;
+    }
+    const next = data?.userReaction === emoji ? null : emoji;
+    const { error: updateError } = await supabase
+      .from('messages')
+      .update({ userReaction: next })
+      .eq('id', messageId);
+    if (updateError) console.error('Failed to save reaction', updateError);
   };
 
   // Status Stories Management
@@ -458,8 +645,9 @@ export default function App() {
     if (!currentUser) return;
     const now = Date.now();
     const mediaUrl = await uploadFileToStorage(
-      `statuses/${currentUser.id}/${now}_${file.name}`,
-      file
+      `chat-media/statuses/${currentUser.id}/${now}_${file.name}`,
+      file,
+      { contentType: file.type }
     );
     const { error } = await supabase.from('statuses').insert({
       authorId: currentUser.id,
@@ -521,15 +709,15 @@ export default function App() {
     }
 
     const newMsg: Message = {
-      id: `msg_${Date.now()}`,
+      id: newId('msg'),
       conversationId: conv.id,
       senderId: currentUser.id,
       senderName: currentUser.displayName,
       senderAvatar: currentUser.avatarUrl,
       text: `Replied to status: "${statusItem.caption}":\n${replyText}`,
       mediaUrl: statusItem.mediaUrl,
-      mediaType: 'image',
-      isEncrypted: true,
+      mediaType: statusItem.mediaType,
+      isEncrypted: false,
       status: 'sent',
       timestamp: Date.now(),
     };
@@ -609,40 +797,231 @@ export default function App() {
     }
   };
 
-  const handleStartCall = (peerId: string, peerName: string, type: 'audio' | 'video') => {
-    sound.playTap();
-    setActiveCall({ peerId, peerName, type });
-  };
+  // ── Calling ────────────────────────────────────────────────────────────────
+  //
+  // Calls used to be a front-end illusion: an overlay, a timer, and a call-log
+  // row whose durationSeconds was Math.floor(Math.random() * 300) + 30. The
+  // person being "called" was never contacted. Everything below drives a real
+  // RTCPeerConnection over Supabase Realtime signalling (see lib/webrtc.ts).
 
-  const handleEndCall = async () => {
-    sound.playTap();
-    if (activeCall && currentUser) {
-      const newRecord: CallRecord = {
-        id: `call_${Date.now()}`,
-        peerId: activeCall.peerId,
-        peerName: activeCall.peerName,
-        peerUsername: syncedContacts.find((c) => c.sovoUserId === activeCall.peerId)?.sovoUsername || '',
-        peerAvatar:
-          syncedContacts.find((c) => c.sovoUserId === activeCall.peerId)?.sovoAvatar ||
-          `https://ui-avatars.com/api/?name=${encodeURIComponent(activeCall.peerName)}&background=222230&color=ffd700`,
-        type: activeCall.type,
-        direction: 'outgoing',
-        status: 'completed',
-        durationSeconds: Math.floor(Math.random() * 300) + 30,
+  const avatarFor = (peerId: string, peerName: string) =>
+    syncedContacts.find((c) => c.sovoUserId === peerId || c.id === peerId)?.sovoAvatar ||
+    `https://ui-avatars.com/api/?name=${encodeURIComponent(peerName)}&background=222230&color=ffd700`;
+
+  const logCall = async (record: {
+    peerId: string;
+    peerName: string;
+    peerAvatar: string;
+    type: CallType;
+    direction: 'incoming' | 'outgoing' | 'missed';
+    status: 'completed' | 'missed' | 'declined';
+    durationSeconds: number;
+  }) => {
+    if (!currentUser) return;
+    try {
+      const { error } = await supabase.from('calls').insert({
+        id: newId('call'),
+        peerId: record.peerId,
+        peerName: record.peerName,
+        peerUsername:
+          syncedContacts.find((c) => c.sovoUserId === record.peerId)?.sovoUsername || '',
+        peerAvatar: record.peerAvatar,
+        type: record.type,
+        direction: record.direction,
+        status: record.status,
+        durationSeconds: record.durationSeconds,
         timestamp: Date.now(),
         isEncrypted: true,
-      };
-      try {
-        const { error } = await supabase.from('calls').insert({
-          ...newRecord,
-          members: [currentUser.id, activeCall.peerId],
-        });
-        if (error) throw error;
-      } catch (e) {
-        console.error('Failed to save call record', e);
-      }
+        members: [currentUser.id, record.peerId],
+      });
+      if (error) throw error;
+    } catch (e) {
+      console.error('Failed to save call record', e);
     }
+  };
+
+  const resetCallState = () => {
     setActiveCall(null);
+    setCallState('idle');
+    setLocalStream(null);
+    setRemoteStream(null);
+    setCallError(null);
+    sound.stopRinging();
+  };
+
+  const buildCallHandlers = (meta: {
+    peerId: string;
+    peerName: string;
+    peerAvatar: string;
+    type: CallType;
+    direction: 'incoming' | 'outgoing';
+  }) => ({
+    onStateChange: setCallState,
+    onLocalStream: setLocalStream,
+    onRemoteStream: (stream: MediaStream) => setRemoteStream(stream),
+    onError: (message: string) => setCallError(message),
+    onEnded: (reason: CallEndReason, durationSeconds: number) => {
+      void logCall({
+        peerId: meta.peerId,
+        peerName: meta.peerName,
+        peerAvatar: meta.peerAvatar,
+        type: meta.type,
+        direction: meta.direction,
+        status:
+          durationSeconds > 0
+            ? 'completed'
+            : reason === 'declined'
+            ? 'declined'
+            : 'missed',
+        durationSeconds,
+      });
+      // Leave a failure on screen briefly so the reason is readable.
+      if (reason === 'failed' || reason === 'permission-denied') {
+        setCallState('ended');
+        setTimeout(resetCallState, 2500);
+      } else {
+        resetCallState();
+      }
+    },
+  });
+
+  const handleStartCall = async (peerId: string, peerName: string, type: CallType) => {
+    if (!currentUser) return;
+    sound.resume();
+    sound.playTap();
+
+    if (!callingSupported()) {
+      setCallError('This device cannot place calls.');
+      return;
+    }
+    if (activeCall || incomingInvite) return;
+
+    const peerAvatar = avatarFor(peerId, peerName);
+    const meta = { peerId, peerName, peerAvatar, type, direction: 'outgoing' as const };
+
+    const session = new SovoCall({
+      peerId,
+      type,
+      isCaller: true,
+      handlers: buildCallHandlers(meta),
+    });
+
+    setCallError(null);
+    setActiveCall({ session, ...meta });
+    setCallState('ringing-out');
+
+    await session.place({
+      id: currentUser.id,
+      name: currentUser.displayName,
+      avatar: currentUser.avatarUrl,
+    });
+  };
+
+  const handleEndCall = () => {
+    sound.playTap();
+    void activeCall?.session.hangup();
+  };
+
+  // Refs so the invite listener always sees current values without resubscribing.
+  const activeCallRef = React.useRef(activeCall);
+  const incomingInviteRef = React.useRef(incomingInvite);
+  useEffect(() => {
+    activeCallRef.current = activeCall;
+  }, [activeCall]);
+  useEffect(() => {
+    incomingInviteRef.current = incomingInvite;
+  }, [incomingInvite]);
+
+  // Listen for incoming calls for as long as the user is signed in.
+  useEffect(() => {
+    if (!currentUser) return;
+    const unsubscribe = listenForIncomingCalls(
+      currentUser.id,
+      (invite) => {
+        // Busy: refuse rather than silently dropping the caller.
+        if (activeCallRef.current || incomingInviteRef.current) {
+          void new SovoCall({
+            callId: invite.callId,
+            peerId: invite.fromUserId,
+            type: invite.type,
+            isCaller: false,
+          }).decline(currentUser.id);
+          return;
+        }
+        setIncomingInvite(invite);
+      },
+      (callId) => {
+        // The caller hung up before we answered.
+        setIncomingInvite((prev) => {
+          if (prev?.callId !== callId) return prev;
+          void logCall({
+            peerId: prev.fromUserId,
+            peerName: prev.fromName,
+            peerAvatar: prev.fromAvatar,
+            type: prev.type,
+            direction: 'incoming',
+            status: 'missed',
+            durationSeconds: 0,
+          });
+          return null;
+        });
+      }
+    );
+    return unsubscribe;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUser?.id]);
+
+  const handleAcceptIncomingCall = async () => {
+    if (!currentUser || !incomingInvite) return;
+    const invite = incomingInvite;
+    setIncomingInvite(null);
+    sound.stopRinging();
+    sound.resume();
+
+    const meta = {
+      peerId: invite.fromUserId,
+      peerName: invite.fromName,
+      peerAvatar: invite.fromAvatar,
+      type: invite.type,
+      direction: 'incoming' as const,
+    };
+
+    const session = new SovoCall({
+      callId: invite.callId,
+      peerId: invite.fromUserId,
+      type: invite.type,
+      isCaller: false,
+      handlers: buildCallHandlers(meta),
+    });
+
+    setCallError(null);
+    setActiveCall({ session, ...meta });
+    setCallState('connecting');
+    await session.accept(currentUser.id);
+  };
+
+  const handleDeclineIncomingCall = async () => {
+    if (!currentUser || !incomingInvite) return;
+    const invite = incomingInvite;
+    setIncomingInvite(null);
+    sound.stopRinging();
+
+    await new SovoCall({
+      callId: invite.callId,
+      peerId: invite.fromUserId,
+      type: invite.type,
+      isCaller: false,
+    }).decline(currentUser.id);
+
+    void logCall({
+      peerId: invite.fromUserId,
+      peerName: invite.fromName,
+      peerAvatar: invite.fromAvatar,
+      type: invite.type,
+      direction: 'incoming',
+      status: 'declined',
+      durationSeconds: 0,
+    });
   };
 
   // 1. Initial Opening Splash Screen
@@ -728,22 +1107,15 @@ export default function App() {
               onSendMessage={handleSendMessage}
               onOpenE2EEModal={handleOpenE2EEFromChat}
               onStartCall={(type) => {
-                const peerId = activeConversation.members.find((m) => m !== currentUser.id) || activeConversation.id;
-                handleStartCall(peerId, activeConversation.name, type);
+                const peerId = activeConversation.members.find((m) => m !== currentUser.id);
+                if (!peerId || activeConversation.type === 'group') {
+                  // Group calling needs an SFU; don't pretend to place one.
+                  setCallError('Group calls are not supported yet — open a direct chat to call.');
+                  return;
+                }
+                void handleStartCall(peerId, activeConversation.name, type);
               }}
-              onToggleReaction={(msgId, emoji) => {
-                setMessagesMap((prev) => ({
-                  ...prev,
-                  [activeConversation.id]: (prev[activeConversation.id] || []).map((m) =>
-                    m.id === msgId
-                      ? {
-                          ...m,
-                          userReaction: m.userReaction === emoji ? undefined : emoji,
-                        }
-                      : m
-                  ),
-                }));
-              }}
+              onToggleReaction={handleToggleReaction}
             />
           ) : (
             <>
@@ -777,7 +1149,9 @@ export default function App() {
                 <CallsView
                   calls={callsList}
                   currentUser={currentUser}
-                  onInitiateCall={(peerId, peerName, type) => handleStartCall(peerId, peerName, type)}
+                  onInitiateCall={(peerId, peerName, type) => {
+                    void handleStartCall(peerId, peerName, type);
+                  }}
                 />
               )}
 
@@ -803,7 +1177,8 @@ export default function App() {
                   onUploadAvatar={async (file) => {
                     const avatarUrl = await uploadFileToStorage(
                       `avatars/${currentUser.id}/${Date.now()}_${file.name}`,
-                      file
+                      file,
+                      { contentType: file.type }
                     );
                     const { error } = await supabase
                       .from('profiles')
@@ -989,13 +1364,44 @@ export default function App() {
         />
       )}
 
-      {/* Active Call Overlay Simulator */}
+      {/* Incoming call ring screen */}
+      {incomingInvite && !activeCall && (
+        <IncomingCallModal
+          invite={incomingInvite}
+          onAccept={() => void handleAcceptIncomingCall()}
+          onDecline={() => void handleDeclineIncomingCall()}
+        />
+      )}
+
+      {/* Live call screen, bound to the real MediaStreams */}
       {activeCall && (
         <ActiveCallOverlay
           peerName={activeCall.peerName}
+          peerAvatar={activeCall.peerAvatar}
           callType={activeCall.type}
+          callState={callState}
+          localStream={localStream}
+          remoteStream={remoteStream}
+          errorMessage={callError}
+          onToggleMute={(muted) => activeCall.session.setMuted(muted)}
+          onToggleCamera={(off) => activeCall.session.setCameraOff(off)}
+          onSwitchCamera={() => void activeCall.session.switchCamera()}
           onEndCall={handleEndCall}
         />
+      )}
+
+      {/* Call failures that happen before an overlay exists (e.g. group call) */}
+      {!activeCall && callError && (
+        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[70] px-4 py-2.5 rounded-xl bg-red-950/90 border border-red-700 text-xs text-red-100 shadow-2xl max-w-xs text-center">
+          {callError}
+          <button
+            type="button"
+            onClick={() => setCallError(null)}
+            className="ml-2 text-red-300 hover:text-white font-bold"
+          >
+            ×
+          </button>
+        </div>
       )}
     </div>
   );

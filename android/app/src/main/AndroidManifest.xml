@@ -6,6 +6,7 @@
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
+        android:hardwareAccelerated="true"
         android:theme="@style/AppTheme">
         <activity
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode|navigation"
@@ -29,8 +30,50 @@
         </provider>
     </application>
 
-    <!-- Permissions -->
+    <!-- ============================================================
+         Permissions
+         Capacitor's BridgeWebChromeClient.onPermissionRequest() maps
+         WebView media requests onto Android runtime permissions:
+             android.webkit.resource.AUDIO_CAPTURE
+                 -> MODIFY_AUDIO_SETTINGS + RECORD_AUDIO
+             android.webkit.resource.VIDEO_CAPTURE
+                 -> CAMERA
+         A permission that is NOT declared here can never be granted at
+         runtime, so the whole request is denied and navigator.
+         mediaDevices.getUserMedia() rejects. That is why voice notes,
+         video calls and in-app camera capture must have every one of
+         these declared, not just RECORD_AUDIO.
+         ============================================================ -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <!-- Voice notes + audio/video calls (WebView AUDIO_CAPTURE) -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+
+    <!-- Video calls + camera capture from the attachment sheet (WebView VIDEO_CAPTURE) -->
+    <uses-permission android:name="android.permission.CAMERA" />
+
+    <!-- Picking existing photos/videos/audio to send (Android 13+) -->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
+    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+
+    <!-- Same, on Android 12 and older -->
+    <uses-permission
+        android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
+    <!-- Saving downloaded attachments via DownloadManager on Android 9 and older -->
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28" />
+
+    <!-- Keep the radio/CPU alive for the duration of a call -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
+    <!-- Camera and mic are used when available but must not gate installation -->
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
+    <uses-feature android:name="android.hardware.microphone" android:required="false" />
 </manifest>

@@ -8,3 +8,6 @@ coverage/
 !.env.example
 android/app/capacitor.build.gradle
 android/capacitor.settings.gradle
+
+# test artefacts
+tests/*.png

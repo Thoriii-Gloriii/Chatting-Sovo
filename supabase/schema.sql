@@ -287,3 +287,213 @@ create policy "signed-in users can upload chat media"
   on storage.objects for insert
   to authenticated
   with check (bucket_id = 'chat-media');
+
+-- ============================================================
+-- 1.2 additions — run this file again to apply them.
+-- Everything below is idempotent.
+-- ============================================================
+
+-- ------------------------------------------------------------
+-- messages: reactions and delivery-status changes are UPDATEs,
+-- and there was no UPDATE policy at all, so every reaction was
+-- silently rejected by RLS. Members of the conversation may
+-- update messages in it.
+-- ------------------------------------------------------------
+drop policy if exists "members can update messages in their conversations" on public.messages;
+create policy "members can update messages in their conversations"
+  on public.messages for update
+  to authenticated
+  using (
+    exists (
+      select 1 from public.conversations c
+      where c.id = "conversationId" and auth.uid()::text = any(c.members)
+    )
+  )
+  with check (
+    exists (
+      select 1 from public.conversations c
+      where c.id = "conversationId" and auth.uid()::text = any(c.members)
+    )
+  );
+
+-- A sender may delete their own message.
+drop policy if exists "senders can delete their own messages" on public.messages;
+create policy "senders can delete their own messages"
+  on public.messages for delete
+  to authenticated
+  using ("senderId" = auth.uid()::text);
+
+-- ------------------------------------------------------------
+-- statuses: the app reads musicTrack but the column never
+-- existed, and view counts were never incremented.
+-- ------------------------------------------------------------
+alter table public.statuses add column if not exists "musicTrack" jsonb;
+alter table public.statuses add column if not exists "viewedBy" text[] default '{}';
+
+create or replace function public.mark_status_viewed(status_id uuid, viewer_id text)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  update public.statuses
+  set "viewedBy" = array_append("viewedBy", viewer_id),
+      "viewsCount" = coalesce("viewsCount", 0) + 1
+  where id = status_id
+    and not (viewer_id = any(coalesce("viewedBy", '{}')));
+end;
+$$;
+
+grant execute on function public.mark_status_viewed(uuid, text) to authenticated;
+
+-- Authors may delete their own status.
+drop policy if exists "authors can delete their own status" on public.statuses;
+create policy "authors can delete their own status"
+  on public.statuses for delete
+  to authenticated
+  using ("authorId" = auth.uid()::text);
+
+-- ------------------------------------------------------------
+-- calls: allow the log row to be updated by a participant.
+-- ------------------------------------------------------------
+drop policy if exists "members can update their call log" on public.calls;
+create policy "members can update their call log"
+  on public.calls for update
+  to authenticated
+  using (auth.uid()::text = any(members))
+  with check (auth.uid()::text = any(members));
+
+create index if not exists calls_timestamp_idx on public.calls (timestamp desc);
+
+-- ------------------------------------------------------------
+-- invites: src/utils/inviteLink.ts calls get_my_invite_code(),
+-- resolve_invite() and start_direct_chat(). None of the three
+-- existed, so every invite link failed at the first RPC.
+-- ------------------------------------------------------------
+create table if not exists public.invites (
+  code text primary key,
+  "ownerId" uuid not null references auth.users(id) on delete cascade,
+  "createdAt" timestamptz not null default now()
+);
+
+create unique index if not exists invites_owner_idx on public.invites ("ownerId");
+
+alter table public.invites enable row level security;
+
+drop policy if exists "owners can read their invite" on public.invites;
+create policy "owners can read their invite"
+  on public.invites for select
+  to authenticated
+  using ("ownerId" = auth.uid());
+
+-- Returns (creating on first call) the caller's stable invite code.
+create or replace function public.get_my_invite_code()
+returns text
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  existing text;
+  fresh text;
+begin
+  if auth.uid() is null then
+    raise exception 'not authenticated';
+  end if;
+
+  select code into existing from public.invites where "ownerId" = auth.uid();
+  if existing is not null then
+    return existing;
+  end if;
+
+  -- 16 hex chars: short enough to share, wide enough not to be guessable.
+  fresh := encode(gen_random_bytes(8), 'hex');
+  insert into public.invites (code, "ownerId") values (fresh, auth.uid());
+  return fresh;
+end;
+$$;
+
+grant execute on function public.get_my_invite_code() to authenticated;
+
+-- Resolves an invite code to the user id that owns it.
+create or replace function public.resolve_invite(p_code text)
+returns text
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  owner uuid;
+begin
+  select "ownerId" into owner from public.invites where code = p_code;
+  if owner is null then
+    return null;
+  end if;
+  return owner::text;
+end;
+$$;
+
+grant execute on function public.resolve_invite(text) to authenticated;
+
+-- Opens (or returns) the direct conversation between the caller and another
+-- user, using the same deterministic id scheme the client uses.
+create or replace function public.start_direct_chat(other_user_id text)
+returns text
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  me text;
+  conv_id text;
+  other_name text;
+  other_username text;
+  other_avatar text;
+begin
+  me := auth.uid()::text;
+  if me is null then
+    raise exception 'not authenticated';
+  end if;
+  if other_user_id = me then
+    raise exception 'cannot start a chat with yourself';
+  end if;
+
+  conv_id := 'conv_direct_' || array_to_string(
+    array(select unnest(array[me, other_user_id]) order by 1), '_'
+  );
+
+  if exists (select 1 from public.conversations where id = conv_id) then
+    return conv_id;
+  end if;
+
+  select "displayName", username, "avatarUrl"
+    into other_name, other_username, other_avatar
+    from public.profiles where id = other_user_id::uuid;
+
+  insert into public.conversations (
+    id, type, name, username, avatar, members, "memberCount", "maxMembers",
+    "adminIds", "unreadCount", "isEncrypted", "e2eeKeyFingerprint", "createdAt"
+  ) values (
+    conv_id, 'direct', coalesce(other_name, 'S''ovo User'), other_username,
+    coalesce(other_avatar, ''), array[me, other_user_id], 2, 2,
+    '{}', 0, true, 'SOVO-E2EE-' || upper(substr(md5(conv_id), 1, 12)),
+    (extract(epoch from now()) * 1000)::bigint
+  );
+
+  return conv_id;
+end;
+$$;
+
+grant execute on function public.start_direct_chat(text) to authenticated;
+
+-- ------------------------------------------------------------
+-- storage: uploads use upsert:true, which needs UPDATE on an
+-- existing object. Only the avatars bucket had that policy.
+-- ------------------------------------------------------------
+drop policy if exists "signed-in users can update chat media" on storage.objects;
+create policy "signed-in users can update chat media"
+  on storage.objects for update
+  to authenticated
+  using (bucket_id = 'chat-media')
+  with check (bucket_id = 'chat-media');
