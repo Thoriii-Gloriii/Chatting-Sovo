@@ -1,7 +1,9 @@
 import { supabase } from './lib/supabase';
 import { ensureProfile } from './lib/authProfile';
 import { uploadFileToStorage } from './lib/upload';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Capacitor } from '@capacitor/core';
+import { App as CapacitorApp } from '@capacitor/app';
 import {
   User,
   Conversation,
@@ -931,6 +933,86 @@ export default function App() {
   useEffect(() => {
     incomingInviteRef.current = incomingInvite;
   }, [incomingInvite]);
+
+  // More refs so the hardware back-button handler below always sees current
+  // navigation state without needing to resubscribe the native listener.
+  const activeConversationRef = useRef(activeConversation);
+  const activeTabRef = useRef(activeTab);
+  const showE2EEModalRef = useRef(showE2EEModal);
+  const showSyncContactsModalRef = useRef(showSyncContactsModal);
+  const showGroupCreateModalRef = useRef(showGroupCreateModal);
+  useEffect(() => {
+    activeConversationRef.current = activeConversation;
+  }, [activeConversation]);
+  useEffect(() => {
+    activeTabRef.current = activeTab;
+  }, [activeTab]);
+  useEffect(() => {
+    showE2EEModalRef.current = showE2EEModal;
+  }, [showE2EEModal]);
+  useEffect(() => {
+    showSyncContactsModalRef.current = showSyncContactsModal;
+  }, [showSyncContactsModal]);
+  useEffect(() => {
+    showGroupCreateModalRef.current = showGroupCreateModal;
+  }, [showGroupCreateModal]);
+
+  // Hardware Android back button. Capacitor's BridgeActivity has no history
+  // to pop for this app (it's client-state navigation, not routed), so left
+  // unhandled the OS default is to finish() the Activity on every press —
+  // the app closes instead of navigating back a step. This listener steps
+  // the in-app state back one level per press, and only lets the real
+  // back button close the app once the user is already at the root
+  // (chats tab, no open conversation, no modal, no active call). It only
+  // fires on native Android via @capacitor/app, so the web/GitHub Pages
+  // build (which never gets a 'backButton' event) keeps its normal
+  // browser back-button behavior untouched.
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
+
+    const listenerPromise = CapacitorApp.addListener('backButton', () => {
+      sound.playTap();
+
+      if (incomingInviteRef.current) {
+        void handleDeclineIncomingCall();
+        return;
+      }
+      if (activeCallRef.current) {
+        handleEndCall();
+        return;
+      }
+      if (showE2EEModalRef.current) {
+        setShowE2EEModal(false);
+        return;
+      }
+      if (showSyncContactsModalRef.current) {
+        setShowSyncContactsModal(false);
+        return;
+      }
+      if (showGroupCreateModalRef.current) {
+        setShowGroupCreateModal(false);
+        return;
+      }
+      if (activeConversationRef.current) {
+        setActiveConversation(null);
+        return;
+      }
+      if (activeTabRef.current !== 'chats') {
+        setActiveTab('chats');
+        return;
+      }
+
+      // Already at the root screen — this is the one case where the
+      // hardware back button should behave like normal Android and exit.
+      CapacitorApp.exitApp();
+    });
+
+    return () => {
+      void listenerPromise.then((listener) => listener.remove());
+    };
+    // Registered once; the handler reads current state via the refs above.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Listen for incoming calls for as long as the user is signed in.
   useEffect(() => {
