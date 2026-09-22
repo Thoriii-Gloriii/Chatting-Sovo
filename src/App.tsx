@@ -28,6 +28,7 @@ import { GroupCreateModal } from './components/GroupCreateModal';
 import { E2EEVerificationModal } from './components/E2EEVerificationModal';
 import { AndroidNavigationBar } from './components/AndroidSystemBar';
 import { sound } from './lib/sound';
+import { useUIDensity } from './hooks/useUIDensity';
 import {
   SovoCall,
   listenForIncomingCalls,
@@ -69,6 +70,12 @@ const DEFAULT_SETTINGS: UserSettings = {
 };
 
 export default function App() {
+  // Resolution-aware UI density: derives a spacing/sizing scale from device
+  // pixel ratio + viewport width so touch targets and layout density feel
+  // native across the fragmented Android device landscape. Fonts are
+  // deliberately excluded from this scaling — see src/lib/deviceResolution.ts.
+  const { scale: uiScale, density: uiDensity } = useUIDensity();
+
   // Navigation & App Lifecycle states
   const [appStage, setAppStage] = useState<'splash' | 'auth' | 'main'>('splash');
   const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -1048,7 +1055,8 @@ export default function App() {
     <div
       className="min-h-screen w-full bg-[#030305] text-[#f4f4f6] flex flex-col items-center justify-center p-0 selection:bg-[#d4af37]/30 selection:text-[#f3e5ab]"
       id="sovo-app-root"
-      style={{ zoom: '0.95' }}
+      data-ui-density={uiDensity}
+      style={{ zoom: '0.95', '--ui-scale': uiScale } as React.CSSProperties}
     >
       {/* Full-screen app container */}
       <div

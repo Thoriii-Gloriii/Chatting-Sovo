@@ -12,6 +12,20 @@
     --obsidian-card: #0c0c10;
     --obsidian-elevated: #14141a;
     --obsidian-border: rgba(212, 175, 55, 0.18);
+
+    /* Resolution-aware density scale. Set on #sovo-app-root at runtime by
+       useUIDensity(); defaults to 1 so nothing shifts before JS runs.
+       Font sizes intentionally do NOT derive from this — only spacing and
+       component sizing do, per the design spec's accessibility rule. */
+    --ui-scale: 1;
+    --density-space-xs: calc(4px * var(--ui-scale));
+    --density-space-sm: calc(8px * var(--ui-scale));
+    --density-space-md: calc(12px * var(--ui-scale));
+    --density-space-lg: calc(16px * var(--ui-scale));
+    --density-space-xl: calc(24px * var(--ui-scale));
+    --density-avatar-sm: calc(36px * var(--ui-scale));
+    --density-avatar-md: calc(48px * var(--ui-scale));
+    --density-avatar-lg: calc(64px * var(--ui-scale));
   }
 
   body {
