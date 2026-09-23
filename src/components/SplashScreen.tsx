@@ -29,21 +29,28 @@ export const SplashScreen: React.FC<SplashScreenProps> = ({ onComplete }) => {
       initial={{ opacity: 1 }}
       exit={{ opacity: 0, scale: 1.05 }}
       transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
-      className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-[#050507] text-[#f4f4f6] px-6 select-none overflow-hidden"
+      className="fixed inset-0 z-50 flex flex-col items-center justify-center px-6 select-none overflow-hidden"
+      style={{ backgroundColor: "var(--color-bg)", color: "var(--color-text)" }}
       id="sovo-splash-screen"
     >
       {/* Ambient background */}
       <div className="absolute inset-0 pointer-events-none overflow-hidden">
-        <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 rounded-full bg-[#d4af37]/12 blur-[120px]" />
-        <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-72 h-72 rounded-full bg-[#aa7c11]/8 blur-[100px]" />
+        <div
+          className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 rounded-full blur-[120px]"
+          style={{ backgroundColor: "rgba(212,175,55,0.12)" }}
+        />
+        <div
+          className="absolute bottom-0 left-1/2 -translate-x-1/2 w-72 h-72 rounded-full blur-[100px]"
+          style={{ backgroundColor: "rgba(170,124,17,0.08)" }}
+        />
         {/* Gold streaks */}
         <svg className="absolute top-0 right-0 w-80 h-80 opacity-20" viewBox="0 0 320 320">
           <path d="M320 0 Q200 140 140 320" stroke="url(#sg1)" strokeWidth="1.5" fill="none"/>
           <path d="M295 0 Q175 150 115 320" stroke="url(#sg1)" strokeWidth="0.8" fill="none"/>
           <defs>
             <linearGradient id="sg1" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stopColor="#ffd700" stopOpacity="0.8"/>
-              <stop offset="100%" stopColor="#d4af37" stopOpacity="0"/>
+              <stop offset="0%" stopColor="var(--color-gold-bright)" stopOpacity="0.8"/>
+              <stop offset="100%" stopColor="var(--color-gold)" stopOpacity="0"/>
             </linearGradient>
           </defs>
         </svg>
@@ -51,8 +58,8 @@ export const SplashScreen: React.FC<SplashScreenProps> = ({ onComplete }) => {
           <path d="M0 300 Q120 180 300 100" stroke="url(#sg2)" strokeWidth="1.5" fill="none"/>
           <defs>
             <linearGradient id="sg2" x1="0%" y1="100%" x2="100%" y2="0%">
-              <stop offset="0%" stopColor="#ffd700" stopOpacity="0.6"/>
-              <stop offset="100%" stopColor="#d4af37" stopOpacity="0"/>
+              <stop offset="0%" stopColor="var(--color-gold-bright)" stopOpacity="0.6"/>
+              <stop offset="100%" stopColor="var(--color-gold)" stopOpacity="0"/>
             </linearGradient>
           </defs>
         </svg>
@@ -82,7 +89,8 @@ export const SplashScreen: React.FC<SplashScreenProps> = ({ onComplete }) => {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ delay: 0.55 }}
-          className="text-base font-medium text-[#888899] tracking-wide"
+          className="text-base font-medium tracking-wide"
+          style={{ color: "var(--color-text-secondary)" }}
         >
           Private. Encrypted. Yours.
         </motion.p>
@@ -90,15 +98,24 @@ export const SplashScreen: React.FC<SplashScreenProps> = ({ onComplete }) => {
 
       {/* Bottom: progress + E2EE badge */}
       <div className="absolute bottom-10 left-0 right-0 flex flex-col items-center gap-4 px-10 z-10">
-        <div className="w-full max-w-xs h-0.5 bg-[#16161c] rounded-full overflow-hidden border border-[#d4af37]/10 relative">
+        <div
+          className="w-full max-w-xs h-0.5 rounded-full overflow-hidden relative"
+          style={{
+            backgroundColor: "var(--color-elevated)",
+            border: "1px solid rgba(212,175,55,0.10)",
+          }}
+        >
           <motion.div
-            className="h-full bg-gradient-to-r from-[#aa7c11] via-[#ffd700] to-[#fff3a8] rounded-full"
+            className="h-full gold-gradient-bg rounded-full"
             style={{ width: `${Math.min(100, progress)}%` }}
             transition={{ ease: "easeInOut" }}
           />
         </div>
-        <div className="flex items-center gap-2 text-[11px] text-[#555568]">
-          <Lock className="w-3 h-3 text-[#d4af37]"/>
+        <div
+          className="flex items-center gap-2 text-[11px]"
+          style={{ color: "var(--color-text-muted)" }}
+        >
+          <Lock className="w-3 h-3" style={{ color: "var(--color-gold)" }}/>
           <span>End-to-end encrypted by default</span>
         </div>
       </div>
