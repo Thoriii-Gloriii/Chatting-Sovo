@@ -4,27 +4,20 @@ import {
   ShieldCheck,
   Lock,
   Eye,
-  EyeOff,
   Fingerprint,
   Smartphone,
   Laptop,
   Tablet,
   QrCode,
-  Check,
   Moon,
-  Sun,
   HardDrive,
   Key,
-  Share2,
   LogOut,
-  Bell,
-  Sparkles,
   ChevronRight,
   Trash2,
-  Volume2,
-  Sliders,
   AtSign,
   Camera,
+  Volume2,
 } from 'lucide-react';
 import { sound } from '../lib/sound';
 import InviteButton from './InviteButton';
@@ -43,16 +36,108 @@ interface SettingsViewProps {
   onOpenE2EEKeys: () => void;
 }
 
+/* ── Shared sub-components ───────────────────────────────────────── */
+
+/** Pill-style toggle switch */
+const Toggle: React.FC<{ on: boolean; onChange: () => void }> = ({ on, onChange }) => (
+  <button
+    type="button"
+    onClick={onChange}
+    className="relative flex-shrink-0 cursor-pointer transition-colors"
+    style={{
+      width: 44,
+      height: 24,
+      borderRadius: 999,
+      backgroundColor: on ? "var(--color-gold)" : "var(--color-elevated)",
+      border: `1px solid ${on ? "var(--color-gold)" : "var(--color-border)"}`,
+    }}
+  >
+    <div
+      className="absolute w-4 h-4 rounded-full bg-black transition-transform"
+      style={{
+        top: 3,
+        left: on ? undefined : 3,
+        right: on ? 3 : undefined,
+      }}
+    />
+  </button>
+);
+
+/** Section header */
+const SectionHeader: React.FC<{ icon: React.ReactNode; label: string; action?: React.ReactNode }> = ({
+  icon, label, action,
+}) => (
+  <div className="flex items-center justify-between px-1 mb-3">
+    <div className="flex items-center gap-2">
+      <span style={{ color: "var(--color-gold)" }}>{icon}</span>
+      <span
+        className="text-[11px] font-bold uppercase tracking-widest"
+        style={{ color: "var(--color-gold)" }}
+      >
+        {label}
+      </span>
+    </div>
+    {action}
+  </div>
+);
+
+/** A single settings row inside a card */
+const Row: React.FC<{
+  icon?: React.ReactNode;
+  label: string;
+  sub?: string;
+  right?: React.ReactNode;
+  onClick?: () => void;
+}> = ({ icon, label, sub, right, onClick }) => (
+  <div
+    className="flex items-center gap-4 px-4 py-4 transition cursor-default"
+    style={{ borderBottom: "1px solid var(--color-border)" }}
+    onClick={onClick}
+    onMouseEnter={(e) => onClick && (e.currentTarget.style.backgroundColor = "var(--color-elevated)")}
+    onMouseLeave={(e) => onClick && (e.currentTarget.style.backgroundColor = "transparent")}
+  >
+    {icon && (
+      <div
+        className="p-2 flex-shrink-0"
+        style={{
+          borderRadius: "var(--radius-sm)",
+          backgroundColor: "rgba(212,175,55,0.10)",
+          border: "1px solid rgba(212,175,55,0.25)",
+          color: "var(--color-gold-bright)",
+        }}
+      >
+        {icon}
+      </div>
+    )}
+    <div className="flex-1 min-w-0">
+      <p className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>{label}</p>
+      {sub && <p className="text-xs mt-0.5 leading-relaxed" style={{ color: "var(--color-text-secondary)" }}>{sub}</p>}
+    </div>
+    {right}
+    {onClick && !right && <ChevronRight className="w-4 h-4 flex-shrink-0" style={{ color: "var(--color-text-muted)" }} />}
+  </div>
+);
+
+/** Card wrapper — groups rows with rounded corners */
+const Card: React.FC<{ children: React.ReactNode }> = ({ children }) => (
+  <div
+    className="overflow-hidden"
+    style={{
+      backgroundColor: "var(--color-surface)",
+      border: "1px solid var(--color-border)",
+      borderRadius: "var(--radius-lg)",
+    }}
+  >
+    {children}
+  </div>
+);
+
+/* ── Main Component ──────────────────────────────────────────────── */
+
 export const SettingsView: React.FC<SettingsViewProps> = ({
-  currentUser,
-  settings,
-  linkedDevices,
-  onUpdateSettings,
-  onUpdateProfile,
-  onUploadAvatar,
-  onUnlinkDevice,
-  onSignOut,
-  onOpenE2EEKeys,
+  currentUser, settings, linkedDevices,
+  onUpdateSettings, onUpdateProfile, onUploadAvatar,
+  onUnlinkDevice, onSignOut, onOpenE2EEKeys,
 }) => {
   const [showQrLinkModal, setShowQrLinkModal] = useState(false);
   const [isEditingUsername, setIsEditingUsername] = useState(false);
@@ -73,11 +158,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     const file = e.target.files?.[0];
     if (!file) return;
     const error = validateImageFile(file);
-    if (error) {
-      setAvatarError(error);
-      e.target.value = '';
-      return;
-    }
+    if (error) { setAvatarError(error); e.target.value = ''; return; }
     setAvatarError('');
     setIsUploadingAvatar(true);
     sound.playTap();
@@ -92,208 +173,229 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     }
   };
 
+  const selectStyle: React.CSSProperties = {
+    backgroundColor: "var(--color-elevated)",
+    border: "1px solid var(--color-border)",
+    color: "var(--color-gold-bright)",
+    borderRadius: "var(--radius-sm)",
+    padding: "6px 10px",
+    fontSize: 12,
+    fontWeight: 600,
+    outline: "none",
+    cursor: "pointer",
+  };
+
   return (
     <div
-      className="flex flex-col h-[calc(100vh-68px)] md:h-[calc(100vh-80px)] w-full max-w-4xl mx-auto bg-[#07070b] border-x border-[#1c1b24] shadow-2xl relative select-none"
+      className="flex flex-col w-full max-w-4xl mx-auto select-none"
+      style={{
+        height: "calc(100vh - 68px)",
+        backgroundColor: "var(--color-bg)",
+      }}
       id="sovo-settings-view"
     >
-      {/* Top Header */}
-      <div className="p-4 bg-[#0c0c12]/95 backdrop-blur-md border-b border-[#22212d] flex items-center justify-between">
+      {/* ── Header ── */}
+      <div
+        className="px-5 py-4 backdrop-blur-md flex items-center justify-between flex-shrink-0"
+        style={{
+          backgroundColor: "var(--color-surface)",
+          borderBottom: "1px solid var(--color-border)",
+        }}
+      >
         <div>
           <h2 className="text-2xl font-display font-extrabold text-gold-glossy tracking-tight">
-            Settings & Security
+            Settings
           </h2>
-          <p className="text-xs text-gray-400">Cryptographic preferences & privacy controls</p>
+          <p className="text-xs mt-0.5" style={{ color: "var(--color-text-secondary)" }}>
+            Privacy controls &amp; security preferences
+          </p>
         </div>
 
-        <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#17150e] border border-[#d4af37]/30 text-xs font-semibold text-[#ffd700]">
+        <div
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold"
+          style={{
+            backgroundColor: "rgba(212,175,55,0.10)",
+            border: "1px solid rgba(212,175,55,0.30)",
+            color: "var(--color-gold-bright)",
+          }}
+        >
           <ShieldCheck className="w-3.5 h-3.5" />
-          <span>4096-bit Zero-Knowledge</span>
+          <span>Zero-Knowledge E2EE</span>
         </div>
       </div>
 
-      {/* Settings Scrollable Content */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-6 scrollbar-thin">
-        {/* User Identity Profile Card */}
-        <div className="p-4 rounded-3xl bg-[#0e0e14] border border-[#272635] flex items-center justify-between">
-          <div className="flex items-center gap-3.5">
-            <div className="relative flex-shrink-0">
-              <img
-                src={currentUser.avatarUrl}
-                alt={currentUser.displayName}
-                className="w-14 h-14 rounded-full object-cover border-2 border-[#d4af37] shadow-lg"
-              />
-              <input
-                ref={avatarInputRef}
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={handleAvatarFileChange}
-              />
+      {/* ── Scrollable content ── */}
+      <div className="flex-1 overflow-y-auto scrollbar-thin px-4 py-6 space-y-8">
+
+        {/* ── Profile card ── */}
+        <div>
+          <Card>
+            {/* Identity row */}
+            <div className="p-5 flex items-center gap-4">
+              {/* Avatar */}
+              <div className="relative flex-shrink-0">
+                <img
+                  src={currentUser.avatarUrl}
+                  alt={currentUser.displayName}
+                  className="w-16 h-16 rounded-full object-cover shadow-lg"
+                  style={{ border: "2px solid var(--color-gold)" }}
+                />
+                <input
+                  ref={avatarInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={handleAvatarFileChange}
+                />
+                <button
+                  type="button"
+                  onClick={() => { sound.playTap(); avatarInputRef.current?.click(); }}
+                  disabled={isUploadingAvatar}
+                  className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full gold-gradient-bg text-black flex items-center justify-center cursor-pointer active:scale-90 transition"
+                  style={{ border: "2px solid var(--color-surface)" }}
+                  title="Change profile picture"
+                >
+                  {isUploadingAvatar
+                    ? <div className="w-3 h-3 border-2 border-black border-t-transparent rounded-full animate-spin" />
+                    : <Camera className="w-3 h-3" />
+                  }
+                </button>
+              </div>
+
+              {/* Name + handle */}
+              <div className="flex-1 min-w-0">
+                <h3 className="text-base font-bold" style={{ color: "var(--color-text)" }}>
+                  {currentUser.displayName}
+                </h3>
+                <div className="flex items-center gap-1 mt-0.5 text-xs font-mono" style={{ color: "var(--color-gold-bright)" }}>
+                  <AtSign className="w-3 h-3" />
+                  <span>{currentUser.username}</span>
+                </div>
+                <p className="text-[11px] mt-1 truncate" style={{ color: "var(--color-text-secondary)" }}>
+                  {currentUser.bio}
+                </p>
+                {avatarError && (
+                  <p className="text-[10px] mt-1" style={{ color: "#f87171" }}>{avatarError}</p>
+                )}
+              </div>
+
               <button
                 type="button"
-                onClick={() => {
-                  sound.playTap();
-                  avatarInputRef.current?.click();
+                onClick={() => { sound.playTap(); setIsEditingUsername(!isEditingUsername); }}
+                className="px-3 py-1.5 text-xs font-semibold transition cursor-pointer flex-shrink-0"
+                style={{
+                  backgroundColor: "var(--color-elevated)",
+                  border: "1px solid rgba(212,175,55,0.30)",
+                  color: "var(--color-gold)",
+                  borderRadius: "var(--radius-sm)",
                 }}
-                disabled={isUploadingAvatar}
-                className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full gold-gradient-bg text-black flex items-center justify-center border-2 border-[#0e0e14] cursor-pointer active:scale-90 transition"
-                title="Change profile picture"
+                onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "rgba(212,175,55,0.10)")}
+                onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "var(--color-elevated)")}
               >
-                {isUploadingAvatar ? (
-                  <div className="w-3 h-3 border-2 border-black border-t-transparent rounded-full animate-spin" />
-                ) : (
-                  <Camera className="w-3 h-3" />
-                )}
+                {isEditingUsername ? 'Close' : 'Edit handle'}
               </button>
             </div>
-            <div>
-              <h3 className="text-base font-bold text-white">{currentUser.displayName}</h3>
-              <div className="flex items-center gap-1 text-xs font-mono text-[#ffd700] mt-0.5">
-                <AtSign className="w-3 h-3" />
-                <span>{currentUser.username}</span>
-              </div>
-              <p className="text-[11px] text-gray-400 mt-1">{currentUser.bio}</p>
-              {avatarError && <p className="text-[10px] text-red-400 mt-1">{avatarError}</p>}
-            </div>
-          </div>
 
-          <button
-            type="button"
-            onClick={() => {
-              sound.playTap();
-              setIsEditingUsername(!isEditingUsername);
-            }}
-            className="px-3 py-1.5 rounded-xl bg-[#181824] hover:bg-[#252436] text-xs font-semibold text-[#d4af37] border border-[#d4af37]/30 transition cursor-pointer"
-          >
-            {isEditingUsername ? 'Close' : 'Edit @handle'}
-          </button>
+            {/* Inline username editor */}
+            {isEditingUsername && (
+              <form
+                onSubmit={handleSaveUsername}
+                className="px-5 pb-5 space-y-3"
+                style={{ borderTop: "1px solid var(--color-border)" }}
+              >
+                <label
+                  className="block text-xs font-semibold pt-4"
+                  style={{ color: "var(--color-text-secondary)" }}
+                >
+                  Change anonymous @username
+                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={newUsername}
+                    onChange={(e) => setNewUsername(e.target.value)}
+                    className="flex-1 px-3 py-2.5 text-xs outline-none"
+                    style={{
+                      backgroundColor: "var(--color-bg)",
+                      border: "1px solid var(--color-border)",
+                      borderRadius: "var(--radius-sm)",
+                      color: "var(--color-text)",
+                    }}
+                    onFocus={(e) => (e.target.style.borderColor = "var(--color-gold)")}
+                    onBlur={(e) => (e.target.style.borderColor = "var(--color-border)")}
+                  />
+                  <button
+                    type="submit"
+                    className="px-4 py-2.5 gold-glossy-button text-xs font-bold cursor-pointer flex-shrink-0"
+                    style={{ borderRadius: "var(--radius-sm)", color: "var(--color-bg)" }}
+                  >
+                    Save
+                  </button>
+                </div>
+                <p className="text-[11px]" style={{ color: "var(--color-text-muted)" }}>
+                  Others can find you by @username without ever seeing your phone number.
+                </p>
+              </form>
+            )}
+          </Card>
         </div>
 
-        {/* Inline @Username Editor */}
-        {isEditingUsername && (
-          <form
-            onSubmit={handleSaveUsername}
-            className="p-4 rounded-2xl bg-[#12121b] border border-[#d4af37]/40 space-y-3 animate-fadeIn"
-          >
-            <label className="block text-xs font-semibold text-gray-300">
-              Change S'ovo Anonymous @Username
-            </label>
-            <div className="flex items-center gap-2">
-              <input
-                type="text"
-                value={newUsername}
-                onChange={(e) => setNewUsername(e.target.value)}
-                className="flex-1 px-3 py-2 bg-[#09090e] border border-[#2d2c3c] focus:border-[#ffd700] rounded-xl text-xs text-white outline-none"
-              />
-              <button
-                type="submit"
-                className="px-4 py-2 rounded-xl gold-glossy-button text-black text-xs font-bold cursor-pointer"
-              >
-                Save
-              </button>
-            </div>
-            <p className="text-[11px] text-gray-400">
-              Other users can find and message you using this username without ever seeing your phone
-              number.
-            </p>
-          </form>
-        )}
-
-        {/* Section: Privacy & Security Controls (Read Receipts, Biometrics, Phone Privacy) */}
-        <div className="space-y-3">
-          <h4 className="text-xs font-bold uppercase tracking-wider text-[#d4af37] px-1 flex items-center gap-1.5">
-            <Lock className="w-3.5 h-3.5" /> Privacy & Cryptographic Preferences
-          </h4>
-
-          <div className="divide-y divide-[#1e1d29] rounded-3xl bg-[#0c0c12] border border-[#232230] overflow-hidden">
-            {/* Read Receipts Toggle */}
-            <div className="p-4 flex items-center justify-between hover:bg-[#12121a] transition">
-              <div className="flex items-start gap-3">
-                <div className="p-2 rounded-xl bg-[#17150e] border border-[#d4af37]/30 text-[#ffd700] mt-0.5">
-                  <Eye className="w-4 h-4" />
-                </div>
-                <div>
-                  <p className="text-sm font-semibold text-white">Read Receipts</p>
-                  <p className="text-xs text-gray-400">
-                    Show glowing gold double checks when you read messages. If disabled, contacts
-                    won't see read status.
-                  </p>
-                </div>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => {
-                  sound.playTap();
-                  onUpdateSettings({ readReceipts: !settings.readReceipts });
-                }}
-                className={`w-11 h-6 rounded-full transition-colors relative flex-shrink-0 cursor-pointer ml-3 ${
-                  settings.readReceipts ? 'bg-[#d4af37]' : 'bg-[#272733]'
-                }`}
-              >
-                <div
-                  className={`w-4 h-4 rounded-full bg-black transition-transform absolute top-1 ${
-                    settings.readReceipts ? 'right-1' : 'left-1'
-                  }`}
+        {/* ── Privacy & Security ── */}
+        <div>
+          <SectionHeader icon={<Lock className="w-3.5 h-3.5" />} label="Privacy & Security" />
+          <Card>
+            {/* Read receipts */}
+            <Row
+              icon={<Eye className="w-4 h-4" />}
+              label="Read Receipts"
+              sub="Show gold double-checks when messages are read. Disabling hides your read status from others."
+              right={
+                <Toggle
+                  on={settings.readReceipts}
+                  onChange={() => { sound.playTap(); onUpdateSettings({ readReceipts: !settings.readReceipts }); }}
                 />
-              </button>
-            </div>
+              }
+            />
 
-            {/* Biometric Authentication Lock Toggle */}
-            <div className="p-4 flex items-center justify-between hover:bg-[#12121a] transition">
-              <div className="flex items-start gap-3">
-                <div className="p-2 rounded-xl bg-[#17150e] border border-[#d4af37]/30 text-[#ffd700] mt-0.5">
-                  <Fingerprint className="w-4 h-4" />
-                </div>
-                <div>
-                  <p className="text-sm font-semibold text-white">Android Biometric Lock</p>
-                  <p className="text-xs text-gray-400">
-                    Require Fingerprint, Face Unlock, or Gold PIN when opening S'ovo.
-                  </p>
-                </div>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => {
-                  sound.playTap();
-                  onUpdateSettings({ biometricLock: !settings.biometricLock });
-                }}
-                className={`w-11 h-6 rounded-full transition-colors relative flex-shrink-0 cursor-pointer ml-3 ${
-                  settings.biometricLock ? 'bg-[#d4af37]' : 'bg-[#272733]'
-                }`}
-              >
-                <div
-                  className={`w-4 h-4 rounded-full bg-black transition-transform absolute top-1 ${
-                    settings.biometricLock ? 'right-1' : 'left-1'
-                  }`}
+            {/* Biometric lock */}
+            <Row
+              icon={<Fingerprint className="w-4 h-4" />}
+              label="Biometric Lock"
+              sub="Require Fingerprint, Face Unlock, or PIN when opening S'ovo."
+              right={
+                <Toggle
+                  on={settings.biometricLock}
+                  onChange={() => { sound.playTap(); onUpdateSettings({ biometricLock: !settings.biometricLock }); }}
                 />
-              </button>
-            </div>
+              }
+            />
 
-            {/* Auto Lock Timeout Selection */}
+            {/* Auto-lock timer (sub-row, only when biometric enabled) */}
             {settings.biometricLock && (
-              <div className="p-4 bg-[#08080c] flex items-center justify-between text-xs">
-                <span className="text-gray-300 font-medium">Auto-Lock Timer</span>
+              <div
+                className="px-4 py-3 flex items-center justify-between"
+                style={{ backgroundColor: "var(--color-bg)", borderBottom: "1px solid var(--color-border)" }}
+              >
+                <span className="text-xs font-medium" style={{ color: "var(--color-text-secondary)" }}>
+                  Auto-lock after
+                </span>
                 <div className="flex items-center gap-1.5">
                   {[
                     { label: 'Immediately', val: 0 },
-                    { label: '1 Min', val: 1 },
-                    { label: '5 Mins', val: 5 },
+                    { label: '1 min', val: 1 },
+                    { label: '5 mins', val: 5 },
                   ].map((opt) => (
                     <button
                       key={opt.val}
                       type="button"
-                      onClick={() => {
-                        sound.playTap();
-                        onUpdateSettings({ autoLockMinutes: opt.val });
+                      onClick={() => { sound.playTap(); onUpdateSettings({ autoLockMinutes: opt.val }); }}
+                      className="px-2.5 py-1 text-xs font-semibold transition cursor-pointer"
+                      style={{
+                        borderRadius: "var(--radius-sm)",
+                        backgroundColor: settings.autoLockMinutes === opt.val ? "rgba(212,175,55,0.12)" : "var(--color-elevated)",
+                        border: `1px solid ${settings.autoLockMinutes === opt.val ? "var(--color-gold)" : "var(--color-border)"}`,
+                        color: settings.autoLockMinutes === opt.val ? "var(--color-gold-bright)" : "var(--color-text-secondary)",
                       }}
-                      className={`px-2.5 py-1 rounded-lg border transition ${
-                        settings.autoLockMinutes === opt.val
-                          ? 'bg-[#221c0e] border-[#ffd700] text-[#ffd700] font-bold'
-                          : 'bg-[#14141c] border-[#292836] text-gray-400'
-                      }`}
                     >
                       {opt.label}
                     </button>
@@ -302,209 +404,244 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               </div>
             )}
 
-            {/* Phone Number Anonymity Visibility */}
-            <div className="p-4 flex items-center justify-between hover:bg-[#12121a] transition">
-              <div>
-                <p className="text-sm font-semibold text-white">Phone Number Privacy</p>
-                <p className="text-xs text-gray-400">
-                  Prioritize anonymity by hiding your phone number from everyone.
+            {/* Phone visibility */}
+            <Row
+              label="Phone Number Visibility"
+              sub="Control who can see your phone number."
+              right={
+                <select
+                  value={settings.phoneVisibility}
+                  onChange={(e) => { sound.playTap(); onUpdateSettings({ phoneVisibility: e.target.value as 'everyone' | 'contacts' | 'nobody' }); }}
+                  style={selectStyle}
+                >
+                  <option value="nobody">Nobody</option>
+                  <option value="contacts">Contacts only</option>
+                  <option value="everyone">Everyone</option>
+                </select>
+              }
+            />
+
+            {/* Status duration — last row, no border-bottom */}
+            <div
+              className="flex items-center gap-4 px-4 py-4"
+            >
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>Status Duration</p>
+                <p className="text-xs mt-0.5" style={{ color: "var(--color-text-secondary)" }}>
+                  Default time before a posted status expires.
                 </p>
               </div>
-
-              <select
-                value={settings.phoneVisibility}
-                onChange={(e) => {
-                  sound.playTap();
-                  onUpdateSettings({
-                    phoneVisibility: e.target.value as 'everyone' | 'contacts' | 'nobody',
-                  });
-                }}
-                className="bg-[#14141d] border border-[#2b2a38] text-[#ffd700] text-xs font-semibold rounded-xl px-3 py-1.5 outline-none cursor-pointer"
-              >
-                <option value="nobody">Nobody (Maximum Anonymity)</option>
-                <option value="contacts">My Contacts Only</option>
-                <option value="everyone">Everyone</option>
-              </select>
-            </div>
-
-            {/* Default Status Disappear Duration */}
-            <div className="p-4 flex items-center justify-between hover:bg-[#12121a] transition">
-              <div>
-                <p className="text-sm font-semibold text-white">Default Status Retention</p>
-                <p className="text-xs text-gray-400">
-                  Choose standard 24 hours or 3-day extended VIP status duration.
-                </p>
-              </div>
-
               <div className="flex items-center gap-1.5">
                 {[1, 3].map((dur) => (
                   <button
                     key={dur}
                     type="button"
-                    onClick={() => {
-                      sound.playTap();
-                      onUpdateSettings({ defaultStoryDuration: dur as 1 | 3 });
+                    onClick={() => { sound.playTap(); onUpdateSettings({ defaultStoryDuration: dur as 1 | 3 }); }}
+                    className="px-3 py-1.5 text-xs font-bold transition cursor-pointer"
+                    style={{
+                      borderRadius: "var(--radius-sm)",
+                      backgroundColor: settings.defaultStoryDuration === dur ? "rgba(212,175,55,0.12)" : "var(--color-elevated)",
+                      border: `1px solid ${settings.defaultStoryDuration === dur ? "var(--color-gold)" : "var(--color-border)"}`,
+                      color: settings.defaultStoryDuration === dur ? "var(--color-gold-bright)" : "var(--color-text-secondary)",
                     }}
-                    className={`px-3 py-1.5 rounded-xl border text-xs font-bold transition ${
-                      settings.defaultStoryDuration === dur
-                        ? 'bg-[#221c0e] border-[#ffd700] text-[#ffd700]'
-                        : 'bg-[#14141c] border-[#292836] text-gray-400'
-                    }`}
                   >
-                    {dur === 1 ? '24 Hours' : '3 Days VIP'}
+                    {dur === 1 ? '24 h' : '3 days'}
                   </button>
                 ))}
               </div>
             </div>
-          </div>
+          </Card>
         </div>
 
-        {/* Section: Cross-Platform Syncing & Linked Devices */}
-        <div className="space-y-3">
-          <div className="flex items-center justify-between px-1">
-            <h4 className="text-xs font-bold uppercase tracking-wider text-[#d4af37] flex items-center gap-1.5">
-              <Laptop className="w-3.5 h-3.5" /> Cross-Platform Syncing ({linkedDevices.length}{' '}
-              Devices)
-            </h4>
+        {/* ── Sound ── */}
+        <div>
+          <SectionHeader icon={<Volume2 className="w-3.5 h-3.5" />} label="Sound" />
+          <Card>
+            <Row
+              icon={<Volume2 className="w-4 h-4" />}
+              label="Sound Effects"
+              sub="Play subtle tap and notification sounds in-app."
+              right={
+                <Toggle
+                  on={settings.soundEffects}
+                  onChange={() => { sound.playTap(); onUpdateSettings({ soundEffects: !settings.soundEffects }); }}
+                />
+              }
+            />
+          </Card>
+        </div>
 
-            <button
-              type="button"
-              onClick={() => {
-                sound.playTap();
-                setShowQrLinkModal(true);
-              }}
-              className="flex items-center gap-1 text-xs text-[#ffd700] hover:underline font-semibold cursor-pointer"
-            >
-              <QrCode className="w-3.5 h-3.5" />
-              <span>Link New Device</span>
-            </button>
-          </div>
-
-          <div className="divide-y divide-[#1e1d29] rounded-3xl bg-[#0c0c12] border border-[#232230] overflow-hidden">
-            {linkedDevices.map((dev) => (
+        {/* ── Linked Devices ── */}
+        <div>
+          <SectionHeader
+            icon={<Smartphone className="w-3.5 h-3.5" />}
+            label={`Linked Devices (${linkedDevices.length})`}
+            action={
+              <button
+                type="button"
+                onClick={() => { sound.playTap(); setShowQrLinkModal(true); }}
+                className="flex items-center gap-1 text-xs font-semibold cursor-pointer"
+                style={{ color: "var(--color-gold-bright)" }}
+              >
+                <QrCode className="w-3.5 h-3.5" />
+                <span>Link Device</span>
+              </button>
+            }
+          />
+          <Card>
+            {linkedDevices.map((dev, i) => (
               <div
                 key={dev.id}
-                className="p-4 flex items-center justify-between hover:bg-[#12121a] transition"
+                className="flex items-center gap-4 px-4 py-4 transition"
+                style={{ borderBottom: i < linkedDevices.length - 1 ? "1px solid var(--color-border)" : "none" }}
               >
-                <div className="flex items-center gap-3">
-                  <div className="p-2.5 rounded-xl bg-[#161622] border border-[#2a2938] text-[#ffd700]">
-                    {dev.iconType === 'desktop' ? (
-                      <Laptop className="w-4 h-4" />
-                    ) : dev.iconType === 'tablet' ? (
-                      <Tablet className="w-4 h-4" />
-                    ) : (
-                      <Smartphone className="w-4 h-4" />
+                <div
+                  className="p-2.5 flex-shrink-0"
+                  style={{
+                    borderRadius: "var(--radius-sm)",
+                    backgroundColor: "var(--color-elevated)",
+                    border: "1px solid var(--color-border)",
+                    color: "var(--color-gold-bright)",
+                  }}
+                >
+                  {dev.iconType === 'desktop' ? <Laptop className="w-4 h-4" />
+                    : dev.iconType === 'tablet' ? <Tablet className="w-4 h-4" />
+                    : <Smartphone className="w-4 h-4" />}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>{dev.name}</p>
+                    {dev.isCurrent && (
+                      <span
+                        className="px-2 py-0.5 text-[9px] font-bold rounded-full"
+                        style={{
+                          backgroundColor: "rgba(212,175,55,0.10)",
+                          border: "1px solid rgba(212,175,55,0.35)",
+                          color: "var(--color-gold-bright)",
+                        }}
+                      >
+                        This Device
+                      </span>
                     )}
                   </div>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <p className="text-sm font-semibold text-white">{dev.name}</p>
-                      {dev.isCurrent && (
-                        <span className="px-2 py-0.5 rounded-full bg-[#1c180e] border border-[#d4af37]/40 text-[9px] text-[#ffd700] font-bold">
-                          This Device
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-xs text-gray-400">
-                      {dev.location} • {dev.ipAddress}
-                    </p>
-                  </div>
+                  <p className="text-xs mt-0.5" style={{ color: "var(--color-text-secondary)" }}>
+                    {dev.location}{dev.ipAddress ? ` • ${dev.ipAddress}` : ''}
+                  </p>
                 </div>
-
                 {!dev.isCurrent && (
                   <button
                     type="button"
-                    onClick={() => {
-                      sound.playTap();
-                      onUnlinkDevice(dev.id);
-                    }}
-                    className="p-2 rounded-xl text-gray-400 hover:text-red-400 hover:bg-red-950/30 transition cursor-pointer"
-                    title="Revoke session key"
+                    onClick={() => { sound.playTap(); onUnlinkDevice(dev.id); }}
+                    className="p-2 transition cursor-pointer"
+                    style={{ color: "var(--color-text-muted)", borderRadius: "var(--radius-sm)" }}
+                    onMouseEnter={(e) => { e.currentTarget.style.color = "#f87171"; e.currentTarget.style.backgroundColor = "rgba(239,68,68,0.10)"; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.color = "var(--color-text-muted)"; e.currentTarget.style.backgroundColor = "transparent"; }}
+                    title="Revoke session"
                   >
                     <Trash2 className="w-4 h-4" />
                   </button>
                 )}
               </div>
             ))}
-          </div>
+          </Card>
         </div>
 
-        {/* Section: Storage & 2GB File Transfers */}
-        <div className="space-y-3">
-          <h4 className="text-xs font-bold uppercase tracking-wider text-[#d4af37] px-1 flex items-center gap-1.5">
-            <HardDrive className="w-3.5 h-3.5" /> Storage & 2GB Encrypted File Transfers
-          </h4>
-
-          <div className="p-4 rounded-3xl bg-[#0c0c12] border border-[#232230] space-y-3">
-            <div className="flex items-center justify-between text-xs">
-              <span className="text-gray-300">File Transfer Limit</span>
-              <span className="font-mono text-[#ffd700] font-bold">2.0 GB per message</span>
+        {/* ── Storage ── */}
+        <div>
+          <SectionHeader icon={<HardDrive className="w-3.5 h-3.5" />} label="Storage" />
+          <Card>
+            <div className="px-4 py-4 flex items-center justify-between" style={{ borderBottom: "1px solid var(--color-border)" }}>
+              <span className="text-xs" style={{ color: "var(--color-text-secondary)" }}>File transfer limit</span>
+              <span className="text-xs font-mono font-bold" style={{ color: "var(--color-gold-bright)" }}>2.0 GB per message</span>
             </div>
-            <div className="flex items-center justify-between text-xs">
-              <span className="text-gray-300">Local Encrypted Cache</span>
-              <span className="font-mono text-gray-400">128.4 MB / Auto-Purge</span>
+            <div className="px-4 py-4 flex items-center justify-between" style={{ borderBottom: "1px solid var(--color-border)" }}>
+              <span className="text-xs" style={{ color: "var(--color-text-secondary)" }}>Local encrypted cache</span>
+              <span className="text-xs font-mono" style={{ color: "var(--color-text-muted)" }}>128.4 MB / Auto-Purge</span>
             </div>
-
             <button
               type="button"
-              onClick={() => {
-                sound.playTap();
-                alert('Local cached media decrypted blocks cleared.');
-              }}
-              className="w-full py-2.5 rounded-xl bg-[#14141c] hover:bg-[#1f1e29] border border-[#2a2938] text-xs font-semibold text-gray-300 hover:text-white transition cursor-pointer"
+              onClick={() => { sound.playTap(); alert('Local cached media decrypted blocks cleared.'); }}
+              className="w-full px-4 py-4 text-xs font-semibold text-left transition cursor-pointer"
+              style={{ color: "var(--color-text-secondary)" }}
+              onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = "var(--color-elevated)"; e.currentTarget.style.color = "var(--color-text)"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = "transparent"; e.currentTarget.style.color = "var(--color-text-secondary)"; }}
             >
               Clear Temporary Decrypted Cache
             </button>
-          </div>
+          </Card>
         </div>
 
-        {/* Section: Invite, Master E2EE Safety Keys & Sign Out */}
-        <div className="pt-2 space-y-2">
-          {/* InviteButton and the whole invite-link flow shipped as dead code —
-              nothing ever rendered it or called consumePendingInvite(). */}
-          <div className="rounded-2xl bg-[#12121a] border border-[#272635] overflow-hidden">
-            <InviteButton supabase={supabase} />
-          </div>
+        {/* ── Actions ── */}
+        <div className="space-y-3 pb-4">
+          {/* Invite */}
+          <Card>
+            <div style={{ borderBottom: "none" }}>
+              <InviteButton supabase={supabase} />
+            </div>
+          </Card>
 
+          {/* E2EE keys */}
           <button
             type="button"
-            onClick={() => {
-              sound.playTap();
-              onOpenE2EEKeys();
+            onClick={() => { sound.playTap(); onOpenE2EEKeys(); }}
+            className="w-full py-4 flex items-center justify-center gap-2 text-sm font-bold transition cursor-pointer"
+            style={{
+              backgroundColor: "rgba(212,175,55,0.08)",
+              border: "1px solid rgba(212,175,55,0.35)",
+              borderRadius: "var(--radius-lg)",
+              color: "var(--color-gold-bright)",
             }}
-            className="w-full py-3.5 rounded-2xl bg-[#16140e] border border-[#d4af37]/40 text-[#ffd700] text-xs font-bold flex items-center justify-center gap-2 hover:bg-[#252014] transition cursor-pointer"
+            onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "rgba(212,175,55,0.14)")}
+            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "rgba(212,175,55,0.08)")}
           >
             <Key className="w-4 h-4" />
-            <span>Export & View 4096-bit Cryptographic Identity</span>
+            <span>View Cryptographic Identity</span>
           </button>
 
+          {/* Sign out */}
           <button
             type="button"
-            onClick={() => {
-              sound.playTap();
-              onSignOut();
+            onClick={() => { sound.playTap(); onSignOut(); }}
+            className="w-full py-4 flex items-center justify-center gap-2 text-sm font-bold transition cursor-pointer"
+            style={{
+              backgroundColor: "rgba(239,68,68,0.06)",
+              border: "1px solid rgba(239,68,68,0.25)",
+              borderRadius: "var(--radius-lg)",
+              color: "#f87171",
             }}
-            className="w-full py-3.5 rounded-2xl bg-red-950/20 hover:bg-red-950/40 border border-red-800/30 text-red-400 text-xs font-bold flex items-center justify-center gap-2 transition cursor-pointer"
+            onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "rgba(239,68,68,0.12)")}
+            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "rgba(239,68,68,0.06)")}
           >
             <LogOut className="w-4 h-4" />
-            <span>Sign Out of S'ovo Session</span>
+            <span>Sign Out</span>
           </button>
         </div>
       </div>
 
-      {/* Link New Device QR Modal */}
+      {/* ── Link device QR modal ── */}
       {showQrLinkModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md">
-          <div className="w-full max-w-sm bg-[#0c0c12] border border-[#d4af37]/40 rounded-3xl p-6 shadow-2xl text-center text-white relative">
-            <h3 className="font-display font-bold text-lg text-gold-glossy mb-1">
-              Link Desktop / Mobile
-            </h3>
-            <p className="text-xs text-gray-400 mb-4">
-              Scan this QR code from your other S'ovo device to synchronize keys and chat history.
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 backdrop-blur-md"
+          style={{ backgroundColor: "rgba(0,0,0,0.85)" }}
+        >
+          <div
+            className="w-full max-w-sm p-6 shadow-2xl text-center relative"
+            style={{
+              backgroundColor: "var(--color-surface)",
+              border: "1px solid rgba(212,175,55,0.40)",
+              borderRadius: "var(--radius-xl)",
+              color: "var(--color-text)",
+            }}
+          >
+            <h3 className="font-display font-bold text-lg text-gold-glossy mb-1">Link Desktop / Mobile</h3>
+            <p className="text-xs mb-5" style={{ color: "var(--color-text-secondary)" }}>
+              Scan this QR code from your other S&apos;ovo device to synchronise keys and chat history.
             </p>
 
-            <div className="p-4 bg-white rounded-2xl inline-block mb-4 shadow-xl border-2 border-[#d4af37]">
-              {/* QR representation */}
+            <div
+              className="p-4 rounded-2xl inline-block mb-5 shadow-xl"
+              style={{ backgroundColor: "#ffffff", border: "2px solid var(--color-gold)" }}
+            >
               <svg className="w-40 h-40" viewBox="0 0 100 100">
                 <rect width="100" height="100" fill="#ffffff" />
                 <rect x="10" y="10" width="20" height="20" fill="#050507" />
@@ -517,7 +654,15 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             <button
               type="button"
               onClick={() => setShowQrLinkModal(false)}
-              className="w-full py-2.5 rounded-xl bg-[#161622] text-xs font-semibold text-gray-300 hover:text-white"
+              className="w-full py-3 text-xs font-semibold transition cursor-pointer"
+              style={{
+                backgroundColor: "var(--color-elevated)",
+                border: "1px solid var(--color-border)",
+                borderRadius: "var(--radius-md)",
+                color: "var(--color-text-secondary)",
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.color = "var(--color-text)")}
+              onMouseLeave={(e) => (e.currentTarget.style.color = "var(--color-text-secondary)")}
             >
               Close
             </button>
