@@ -1,0 +1,94 @@
+/*
+ * S'ovo Chat — Design Tokens
+ *
+ * Single source of truth for the design system described in the
+ * product spec: "clean minimal, premium dark-mode messaging app,
+ * 80% deep black / dark surfaces, 15% white & gray typography,
+ * 5% gold brand accents."
+ *
+ * Components should consume these variables (var(--color-gold),
+ * var(--space-4), etc.) instead of hardcoding hex values or raw
+ * pixel spacing, so the whole app can be restyled from this one file.
+ *
+ * --ui-scale and --ui-density are NOT set here — they're written
+ * onto :root at runtime by useUIDensity() (src/hooks/useUIDensity.ts)
+ * based on the opening device's actual resolution/DPI. See that file
+ * for why scale drives spacing/sizing only, never font-size.
+ */
+
+:root {
+  /* Surface hierarchy (Level 0 -> Level 2) */
+  --color-bg: #030305;        /* Level 0 — main app shell */
+  --color-surface: #07070b;   /* Level 1 — cards, nav, message areas */
+  --color-elevated: #101116;  /* Level 2 — bubbles, modals, inputs */
+
+  /* Typography */
+  --color-text: #f4f4f6;            /* headings, primary info */
+  --color-text-secondary: #9a9aa3;  /* timestamps, descriptions */
+  --color-text-muted: #686871;      /* least important metadata */
+
+  /* Brand gold — reserved for active states & primary actions only */
+  --color-gold: #d4af37;
+  --color-gold-bright: #ffd700;
+
+  --color-border: rgba(255, 255, 255, 0.08);
+
+  /* Corner radius scale */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 22px;
+  --radius-pill: 999px;
+
+  /* Spacing scale — base (unscaled) values */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-7: 32px;
+  --space-8: 40px;
+
+  /* Accessibility floor: interactive targets never shrink below this,
+     regardless of device density/scale (spec section 31). */
+  --min-tap-target: 44px;
+
+  /* Overwritten at runtime by useUIDensity(); 1 = no adjustment. */
+  --ui-scale: 1;
+}
+
+/*
+ * Usage pattern for density-aware spacing:
+ *   padding: calc(var(--space-4) * var(--ui-scale));
+ *   gap: calc(var(--space-3) * var(--ui-scale));
+ *   width: calc(48px * var(--ui-scale));   // e.g. avatar
+ *
+ * Never do this for font-size or line-height — text stays at its
+ * base size across densities for readability (spec section 23/31).
+ *
+ * For anything tappable, clamp the scaled size so it can't drop
+ * below the accessibility floor:
+ *   min-width: max(var(--min-tap-target), calc(40px * var(--ui-scale)));
+ *   min-height: max(var(--min-tap-target), calc(40px * var(--ui-scale)));
+ */
+
+.tap-target {
+  min-width: var(--min-tap-target);
+  min-height: var(--min-tap-target);
+}
+
+/* Bottom navigation items: slightly roomier on low-DPI/budget devices,
+   slightly tighter on flagship high-DPI phones — but never below the
+   44px accessibility floor either way. */
+.nav-tap-target {
+  min-height: max(var(--min-tap-target), calc(44px * var(--ui-scale)));
+}
+
+/* Story/status carousel avatars: same idea, applied to size instead
+   of just min-height, since these are circular thumbnails rather
+   than buttons with internal padding. */
+.status-avatar-scaled {
+  width: calc(56px * var(--ui-scale));
+  height: calc(56px * var(--ui-scale));
+}
