@@ -32,6 +32,12 @@ interface StatusReelsViewProps {
   onSendStatusReply: (contactId: string, replyText: string, statusItem: StatusItem) => void;
   onAddStatus: (file: File, caption: string, durationDays: StoryDuration, privacy: StoryPrivacy) => Promise<void>;
   onToggleLike: (storyUserId: string, itemId: string) => void;
+  /** Story to open directly on (e.g. the user tapped a specific avatar in the
+   *  carousel rather than the generic "Statuses" tab). Falls back to the
+   *  first story when absent or not found. */
+  initialUserId?: string;
+  /** Exit the full-screen story viewer back to the previous screen. */
+  onClose: () => void;
 }
 
 export const StatusReelsView: React.FC<StatusReelsViewProps> = ({
@@ -40,8 +46,14 @@ export const StatusReelsView: React.FC<StatusReelsViewProps> = ({
   onSendStatusReply,
   onAddStatus,
   onToggleLike,
+  initialUserId,
+  onClose,
 }) => {
-  const [currentUserIndex, setCurrentUserIndex] = useState(0);
+  const [currentUserIndex, setCurrentUserIndex] = useState(() => {
+    if (!initialUserId) return 0;
+    const idx = stories.findIndex((s) => s.userId === initialUserId);
+    return idx >= 0 ? idx : 0;
+  });
   const [currentItemIndex, setCurrentItemIndex] = useState(0);
   const [isMuted, setIsMuted] = useState(false);
   const [replyText, setReplyText] = useState('');
@@ -235,11 +247,27 @@ export const StatusReelsView: React.FC<StatusReelsViewProps> = ({
   return (
     <div
       ref={containerRef}
-      className="relative w-full h-[calc(100vh-68px)] md:h-[calc(100vh-80px)] max-w-md mx-auto bg-black rounded-none md:rounded-3xl overflow-hidden shadow-2xl border-0 md:border border-[#2d2b1f] select-none"
+      className="relative w-full h-full max-w-md mx-auto bg-black overflow-hidden shadow-2xl select-none"
       id="sovo-tiktok-reels-container"
     >
+      {/* Close button — this view now takes over the entire screen (top app
+          bar and bottom nav are hidden while it's open), so it needs its
+          own explicit way back out. */}
+      <button
+        type="button"
+        onClick={() => {
+          sound.playTap();
+          onClose();
+        }}
+        aria-label="Close status"
+        className="absolute z-40 flex items-center justify-center w-9 h-9 rounded-full bg-black/50 backdrop-blur-md border border-white/15 text-white hover:text-[#ffd700] transition"
+        style={{ top: 'max(0.5rem, env(safe-area-inset-top))', right: '0.75rem' }}
+      >
+        <X className="w-5 h-5" />
+      </button>
+
       {/* Top Header Stories Navigation Avatars Carousel */}
-      <div className="absolute top-2 left-0 right-0 z-30 px-3 py-1 bg-gradient-to-b from-black/80 via-black/40 to-transparent">
+      <div className="absolute top-2 left-0 right-0 z-30 pl-3 pr-14 py-1 bg-gradient-to-b from-black/80 via-black/40 to-transparent">
         <div className="flex items-center gap-2.5 overflow-x-auto pb-1.5 scrollbar-none">
           {/* Add my status button */}
           <button

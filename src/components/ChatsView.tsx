@@ -11,7 +11,7 @@ interface ChatsViewProps {
   onSelectConversation: (conv: Conversation) => void;
   onOpenNewGroup: () => void;
   onOpenSyncContacts: () => void;
-  onOpenReelsView: () => void;
+  onOpenReelsView: (userId?: string) => void;
 }
 
 function timeAgo(ts: number): string {
@@ -77,7 +77,7 @@ export const ChatsView: React.FC<ChatsViewProps> = ({
             const ts = story.items[0]?.createdAt || Date.now();
             return (
               <button key={story.userId} type="button"
-                onClick={() => { sound.playTap(); onOpenReelsView(); }}
+                onClick={() => { sound.playTap(); onOpenReelsView(story.userId); }}
                 className="flex flex-col items-center gap-1.5 flex-shrink-0 cursor-pointer group">
                 <div className={`status-avatar-scaled rounded-full p-0.5 ${story.hasUnseen ? "bg-gradient-to-br from-[#ffd700] via-[#d4af37] to-[#aa7c11]" : "bg-[#333]"}`}>
                   <img src={story.avatarUrl} alt={story.displayName}
