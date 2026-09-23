@@ -1,7 +1,7 @@
 import { supabase } from './lib/supabase';
 import { ensureProfile } from './lib/authProfile';
 import { uploadFileToStorage } from './lib/upload';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   User,
   Conversation,
@@ -81,6 +81,10 @@ export default function App() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [activeTab, setActiveTab] = useState<'chats' | 'statuses' | 'calls' | 'settings'>('chats');
   const [activeConversation, setActiveConversation] = useState<Conversation | null>(null);
+  // Which specific person's story the full-screen status viewer should open
+  // on, when entered by tapping a particular avatar rather than the generic
+  // Statuses tab. Null just opens on the first available story.
+  const [statusViewerUserId, setStatusViewerUserId] = useState<string | null>(null);
 
   // Security & Biometric Lock state
   const [isBiometricLocked, setIsBiometricLocked] = useState(false);
@@ -120,6 +124,19 @@ export default function App() {
   const [syncedContacts, setSyncedContacts] = useState<SyncedContact[]>([]);
   const [linkedDevices, setLinkedDevices] = useState<LinkedDevice[]>([]);
   const [callsList, setCallsList] = useState<CallRecord[]>([]);
+
+  // Direct-chat header identity fix: a 1:1 conversation's stored `name`/
+  // `avatar` fields used to be whichever contact-list name the creator
+  // happened to have saved, baked in once at creation time — so the other
+  // participant would see themselves mislabeled (or worse, "S'ovo User")
+  // in their own conversation header. Instead we resolve each direct
+  // conversation's displayed name/avatar live, per-viewer, from the OTHER
+  // member's real profile — so both phones always show the correspondent's
+  // actual name, never the viewer's own or a stale cached one.
+  const [memberProfiles, setMemberProfiles] = useState<
+    Record<string, { displayName: string; avatarUrl: string }>
+  >({});
+  const fetchedProfileIds = useRef<Set<string>>(new Set());
 
   // Check saved session on load, and react to sign-in/sign-out afterward.
   useEffect(() => {
@@ -305,6 +322,94 @@ export default function App() {
       supabase.removeChannel(channel);
     };
   }, [currentUser]);
+
+  // Resolve the real display name/avatar of the OTHER person in each direct
+  // conversation, live. Fetch any member profiles we don't have cached yet,
+  // then keep them fresh via realtime so a name/avatar change on either
+  // phone shows up on both without needing to reopen the chat.
+  useEffect(() => {
+    if (!currentUser) return;
+
+    const otherMemberIds = new Set<string>();
+    conversations.forEach((c) => {
+      if (c.type !== 'direct') return;
+      const otherId = c.members.find((m) => m !== currentUser.id);
+      if (otherId) otherMemberIds.add(otherId);
+    });
+    if (otherMemberIds.size === 0) return;
+
+    const idsToFetch = Array.from(otherMemberIds).filter(
+      (id) => !fetchedProfileIds.current.has(id)
+    );
+    if (idsToFetch.length === 0) return;
+    idsToFetch.forEach((id) => fetchedProfileIds.current.add(id));
+
+    supabase
+      .from('profiles')
+      .select('id, displayName, avatarUrl')
+      .in('id', idsToFetch)
+      .then(({ data, error }) => {
+        if (error) {
+          console.error('Failed to load conversation partner profiles', error);
+          // Allow a retry on the next pass instead of caching the failure.
+          idsToFetch.forEach((id) => fetchedProfileIds.current.delete(id));
+          return;
+        }
+        if (!data || data.length === 0) return;
+        setMemberProfiles((prev) => {
+          const next = { ...prev };
+          for (const row of data as { id: string; displayName: string; avatarUrl: string }[]) {
+            next[row.id] = { displayName: row.displayName, avatarUrl: row.avatarUrl };
+          }
+          return next;
+        });
+      });
+  }, [conversations, currentUser]);
+
+  // Live-update a conversation partner's name/avatar if they change it —
+  // e.g. so it updates on the other person's screen without a refresh.
+  useEffect(() => {
+    if (!currentUser) return;
+    const watchedIds = new Set<string>();
+    conversations.forEach((c) => {
+      if (c.type !== 'direct') return;
+      const otherId = c.members.find((m) => m !== currentUser.id);
+      if (otherId) watchedIds.add(otherId);
+    });
+    if (watchedIds.size === 0) return;
+
+    const channel = supabase
+      .channel(`partner-profiles-${currentUser.id}`)
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'profiles' },
+        (payload) => {
+          const row = payload.new as { id: string; displayName: string; avatarUrl: string };
+          if (!row?.id || !watchedIds.has(row.id)) return;
+          setMemberProfiles((prev) => ({
+            ...prev,
+            [row.id]: { displayName: row.displayName, avatarUrl: row.avatarUrl },
+          }));
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [conversations, currentUser]);
+
+  // A direct conversation's true display name/avatar is always the OTHER
+  // member's live profile — never the raw DB row, which only reflects
+  // whichever contact name the conversation's creator happened to save.
+  // Group conversations are unaffected (their name is the group's own).
+  const resolveConversationDisplay = (conv: Conversation): Conversation => {
+    if (conv.type !== 'direct' || !currentUser) return conv;
+    const otherId = conv.members.find((m) => m !== currentUser.id);
+    const profile = otherId ? memberProfiles[otherId] : undefined;
+    if (!profile) return conv;
+    return { ...conv, name: profile.displayName, avatar: profile.avatarUrl || conv.avatar };
+  };
 
   // Real user directory: every other registered account, used to power "Discover"
   // and @username search instead of a fake local contact-sync simulation.
@@ -794,9 +899,10 @@ export default function App() {
 
   const handleOpenE2EEFromChat = () => {
     if (activeConversation) {
+      const display = resolveConversationDisplay(activeConversation);
       setE2EEPeerInfo({
         id: activeConversation.id,
-        name: activeConversation.name,
+        name: display.name,
         username: activeConversation.username,
         keyFingerprint: activeConversation.e2eeKeyFingerprint,
       });
@@ -1064,7 +1170,10 @@ export default function App() {
         id="android-device-chassis"
       >
 
-        {/* Material 3 Top App Bar */}
+        {/* Material 3 Top App Bar — hidden while a status is open full-screen,
+            so nothing but the story content is visible (Instagram/Snapchat-
+            style immersive viewer). */}
+        {activeTab !== 'statuses' && (
         <header className="h-15 px-4 bg-[#09090e]/95 backdrop-blur-md border-b border-[#1c1b24] flex items-center justify-between sticky top-0 z-40">
           <div className="flex items-center gap-2.5">
             <SovoLogo size="sm" showText={true} withGlow={true} />
@@ -1101,13 +1210,14 @@ export default function App() {
             />
           </div>
         </header>
+        )}
 
         {/* Main Content Area */}
         <main className="flex-1 flex flex-col relative overflow-hidden">
           {/* Active Chat Conversation Room or Tab View */}
           {activeConversation ? (
             <ChatRoom
-              conversation={activeConversation}
+              conversation={resolveConversationDisplay(activeConversation)}
               messages={messagesMap[activeConversation.id] || []}
               currentUser={currentUser}
               settings={settings}
@@ -1121,7 +1231,7 @@ export default function App() {
                   setCallError('Group calls are not supported yet — open a direct chat to call.');
                   return;
                 }
-                void handleStartCall(peerId, activeConversation.name, type);
+                void handleStartCall(peerId, resolveConversationDisplay(activeConversation).name, type);
               }}
               onToggleReaction={handleToggleReaction}
             />
@@ -1130,14 +1240,17 @@ export default function App() {
               {/* Tab 1: Chats (Default Dashboard) */}
               {activeTab === 'chats' && (
                 <ChatsView
-                  conversations={conversations}
+                  conversations={conversations.map(resolveConversationDisplay)}
                   statusStories={statusStories}
                   currentUser={currentUser}
                   settings={settings}
                   onSelectConversation={(conv) => setActiveConversation(conv)}
                   onOpenNewGroup={() => setShowGroupCreateModal(true)}
                   onOpenSyncContacts={() => setShowSyncContactsModal(true)}
-                  onOpenReelsView={() => setActiveTab('statuses')}
+                  onOpenReelsView={(userId) => {
+                    setStatusViewerUserId(userId ?? null);
+                    setActiveTab('statuses');
+                  }}
                 />
               )}
 
@@ -1149,6 +1262,11 @@ export default function App() {
                   onSendStatusReply={handleSendStatusReply}
                   onAddStatus={handleAddStatus}
                   onToggleLike={handleToggleStatusLike}
+                  initialUserId={statusViewerUserId ?? undefined}
+                  onClose={() => {
+                    setStatusViewerUserId(null);
+                    setActiveTab('chats');
+                  }}
                 />
               )}
 
@@ -1214,8 +1332,9 @@ export default function App() {
           )}
         </main>
 
-        {/* Material 3 Android Bottom Navigation Bar (Visible when not in active chat room) */}
-        {!activeConversation && (
+        {/* Material 3 Android Bottom Navigation Bar (Visible when not in active
+            chat room, and hidden during the full-screen status viewer) */}
+        {!activeConversation && activeTab !== 'statuses' && (
           <nav
             className="h-16 px-1 bg-[#08080d] border-t border-[#1a1928] flex items-center justify-around z-30 shadow-2xl"
             id="android-m3-navigation-bar"
@@ -1267,6 +1386,7 @@ export default function App() {
               type="button"
               onClick={() => {
                 sound.playTap();
+                setStatusViewerUserId(null);
                 setActiveTab('statuses');
               }}
               className="flex flex-col items-center gap-0.5 transition cursor-pointer flex-1 py-2"
@@ -1321,7 +1441,10 @@ export default function App() {
           </nav>
         )}
 
-        {/* Android System Navigation Gesture Bar at bottom */}
+        {/* Android System Navigation Gesture Bar at bottom — hidden during
+            the full-screen status viewer for a true edge-to-edge immersive
+            view; the viewer has its own close (X) button instead. */}
+        {activeTab !== 'statuses' && (
         <AndroidNavigationBar
           onBack={handleAndroidBack}
           onHome={() => {
@@ -1333,6 +1456,7 @@ export default function App() {
             sound.playTap();
           }}
         />
+        )}
       </div>
 
       {/* Biometric Lock Modal Guard */}
