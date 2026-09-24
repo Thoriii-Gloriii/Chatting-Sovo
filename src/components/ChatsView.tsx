@@ -62,9 +62,9 @@ export const ChatsView: React.FC<ChatsViewProps> = ({
           {/* My Status */}
           <button type="button" onClick={() => { sound.playTap(); onOpenReelsView(); }}
             className="flex flex-col items-center gap-1.5 flex-shrink-0 cursor-pointer">
-            <div className="relative w-14 h-14">
+            <div className="relative status-avatar-scaled">
               <img src={currentUser.avatarUrl} alt="My Status"
-                className="w-14 h-14 rounded-full object-cover border-2 border-[#222230]"/>
+                className="status-avatar-scaled rounded-full object-cover border-2 border-[#222230]"/>
               <div className="absolute -bottom-0.5 -right-0.5 w-5 h-5 rounded-full gold-gradient-bg flex items-center justify-center border-2 border-[#07070b]">
                 <Plus className="w-3 h-3 text-black stroke-[3]"/>
               </div>
@@ -79,7 +79,7 @@ export const ChatsView: React.FC<ChatsViewProps> = ({
               <button key={story.userId} type="button"
                 onClick={() => { sound.playTap(); onOpenReelsView(); }}
                 className="flex flex-col items-center gap-1.5 flex-shrink-0 cursor-pointer group">
-                <div className={`w-14 h-14 rounded-full p-0.5 ${story.hasUnseen ? "bg-gradient-to-br from-[#ffd700] via-[#d4af37] to-[#aa7c11]" : "bg-[#333]"}`}>
+                <div className={`status-avatar-scaled rounded-full p-0.5 ${story.hasUnseen ? "bg-gradient-to-br from-[#ffd700] via-[#d4af37] to-[#aa7c11]" : "bg-[#333]"}`}>
                   <img src={story.avatarUrl} alt={story.displayName}
                     className="w-full h-full rounded-full object-cover border-2 border-[#07070b]"/>
                 </div>

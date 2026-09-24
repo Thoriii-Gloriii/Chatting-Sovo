@@ -1,6 +1,7 @@
 import { supabase } from './lib/supabase';
 import { ensureProfile } from './lib/authProfile';
 import { uploadFileToStorage } from './lib/upload';
+import { useUIDensity } from './hooks/useUIDensity';
 import React, { useState, useEffect } from 'react';
 import {
   User,
@@ -69,6 +70,11 @@ const DEFAULT_SETTINGS: UserSettings = {
 };
 
 export default function App() {
+  // Keeps --ui-scale / [data-density] on the document root in sync with
+  // the device's actual resolution/DPI (spacing & sizing only — never
+  // font-size). See src/hooks/useUIDensity.ts.
+  useUIDensity();
+
   // Navigation & App Lifecycle states
   const [appStage, setAppStage] = useState<'splash' | 'auth' | 'main'>('splash');
   const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -1219,7 +1225,7 @@ export default function App() {
                 sound.playTap();
                 setActiveTab('chats');
               }}
-              className="flex flex-col items-center gap-0.5 transition cursor-pointer flex-1 py-2"
+              className="flex flex-col items-center gap-0.5 transition cursor-pointer flex-1 py-2 nav-tap-target"
             >
               <div
                 className={`w-12 h-6 rounded-full transition-all duration-200 flex items-center justify-center ${
@@ -1240,7 +1246,7 @@ export default function App() {
                 sound.playTap();
                 setActiveTab('calls');
               }}
-              className="flex flex-col items-center gap-0.5 transition cursor-pointer flex-1 py-2"
+              className="flex flex-col items-center gap-0.5 transition cursor-pointer flex-1 py-2 nav-tap-target"
             >
               <div
                 className={`w-12 h-6 rounded-full transition-all duration-200 flex items-center justify-center ${
@@ -1261,7 +1267,7 @@ export default function App() {
                 sound.playTap();
                 setActiveTab('statuses');
               }}
-              className="flex flex-col items-center gap-0.5 transition cursor-pointer flex-1 py-2"
+              className="flex flex-col items-center gap-0.5 transition cursor-pointer flex-1 py-2 nav-tap-target"
             >
               <div
                 className={`w-12 h-6 rounded-full transition-all duration-200 flex items-center justify-center ${
@@ -1282,7 +1288,7 @@ export default function App() {
                 sound.playTap();
                 setShowGroupCreateModal(true);
               }}
-              className="flex flex-col items-center gap-0.5 transition cursor-pointer flex-1 py-2"
+              className="flex flex-col items-center gap-0.5 transition cursor-pointer flex-1 py-2 nav-tap-target"
             >
               <div className="w-12 h-6 rounded-full flex items-center justify-center text-gray-500">
                 <Users className="w-5 h-5 stroke-[1.8]" />
@@ -1297,7 +1303,7 @@ export default function App() {
                 sound.playTap();
                 setActiveTab('settings');
               }}
-              className="flex flex-col items-center gap-0.5 transition cursor-pointer flex-1 py-2"
+              className="flex flex-col items-center gap-0.5 transition cursor-pointer flex-1 py-2 nav-tap-target"
             >
               <div
                 className={`w-12 h-6 rounded-full transition-all duration-200 flex items-center justify-center ${
