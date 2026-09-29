@@ -189,6 +189,75 @@ export default function App() {
     applyTheme(settings.darkMode);
   }, [settings.darkMode]);
 
+  // Android hardware back button handling.
+  // Capacitor fires a native 'backbutton' event on document so we can intercept it.
+  useEffect(() => {
+    // Only wire up on Android Capacitor builds — not needed on web.
+    const isCapacitorAndroid =
+      typeof (window as any).Capacitor !== 'undefined' &&
+      (window as any).Capacitor.getPlatform?.() === 'android';
+
+    if (!isCapacitorAndroid) return;
+
+    let backPressedOnce = false;
+    let toastTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const handler = (e: Event) => {
+      e.preventDefault(); // stops default exit behaviour
+
+      // 1. Dismiss any open modals first (biometric, E2EE, sync, etc.)
+      if (showE2EEModal) { setShowE2EEModal(false); return; }
+      if (showSyncContactsModal) { setShowSyncContactsModal(false); return; }
+      if (showGroupCreateModal) { setShowGroupCreateModal(false); return; }
+
+      // 2. Close an active conversation → back to chats list
+      if (activeConversation) {
+        setActiveConversation(null);
+        setActiveTab('chats');
+        return;
+      }
+
+      // 3. On a non-chats tab → jump to chats
+      if (activeTab !== 'chats') {
+        setActiveTab('chats');
+        return;
+      }
+
+      // 4. Already on chats home — double-back-to-exit
+      if (backPressedOnce) {
+        // Let the OS close the app naturally by not calling preventDefault
+        // on the next press — achieved by removing this handler temporarily.
+        document.removeEventListener('backbutton', handler);
+        (window as any).history.go(-1); // triggers real back → app minimises
+        return;
+      }
+
+      backPressedOnce = true;
+      // Show a toast using Android's native toast via a quick DOM message
+      const toast = document.createElement('div');
+      toast.textContent = "Press back again to exit";
+      toast.style.cssText = [
+        'position:fixed', 'bottom:80px', 'left:50%', 'transform:translateX(-50%)',
+        'background:rgba(0,0,0,0.75)', 'color:#fff', 'padding:10px 20px',
+        'border-radius:20px', 'font-size:13px', 'z-index:99999',
+        'pointer-events:none', 'backdrop-filter:blur(4px)',
+        'white-space:nowrap',
+      ].join(';');
+      document.body.appendChild(toast);
+
+      toastTimer = setTimeout(() => {
+        backPressedOnce = false;
+        toast.remove();
+      }, 2000);
+    };
+
+    document.addEventListener('backbutton', handler);
+    return () => {
+      document.removeEventListener('backbutton', handler);
+      if (toastTimer) clearTimeout(toastTimer);
+    };
+  }, [activeConversation, activeTab, showE2EEModal, showSyncContactsModal, showGroupCreateModal]);
+
   /**
    * Publish this device's real E2EE public key.
    *
