@@ -14,6 +14,9 @@
  * onto :root at runtime by useUIDensity() (src/hooks/useUIDensity.ts)
  * based on the opening device's actual resolution/DPI. See that file
  * for why scale drives spacing/sizing only, never font-size.
+ *
+ * Theme switching: set data-theme="light" on <html> for light mode.
+ * The [data-theme="light"] block below overrides all surface + text vars.
  */
 
 :root {
@@ -21,6 +24,7 @@
   --color-bg: #030305;        /* Level 0 — main app shell */
   --color-surface: #07070b;   /* Level 1 — cards, nav, message areas */
   --color-elevated: #101116;  /* Level 2 — bubbles, modals, inputs */
+  --color-header: #09090e;    /* Top/bottom bars — between surface and bg */
 
   /* Typography */
   --color-text: #f4f4f6;            /* headings, primary info */
@@ -31,7 +35,22 @@
   --color-gold: #d4af37;
   --color-gold-bright: #ffd700;
 
+  /* Gold tints — for icon row backgrounds, pills, subtle highlights */
+  --color-gold-dim: rgba(212, 175, 55, 0.10);
+  --color-gold-border: rgba(212, 175, 55, 0.30);
+  --color-gold-glow: rgba(212, 175, 55, 0.18);
+
+  /* Semantic borders */
   --color-border: rgba(255, 255, 255, 0.08);
+  --color-border-strong: rgba(255, 255, 255, 0.15);
+
+  /* Danger / destructive states */
+  --color-danger: #ef4444;
+  --color-danger-dim: rgba(239, 68, 68, 0.08);
+  --color-danger-text: #f87171;
+
+  /* Overlay / backdrop */
+  --color-overlay: rgba(0, 0, 0, 0.85);
 
   /* Corner radius scale */
   --radius-sm: 8px;
@@ -56,6 +75,33 @@
 
   /* Overwritten at runtime by useUIDensity(); 1 = no adjustment. */
   --ui-scale: 1;
+
+  /* Safe area — overwritten by JS when viewport-fit=cover is active */
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* ─── Light mode — #6e6d6d warm gray palette ────────────────────────────── */
+[data-theme="light"] {
+  --color-bg: #6e6d6d;
+  --color-surface: #7a7979;
+  --color-elevated: #858484;
+  --color-header: #676666;
+
+  --color-text: #ffffff;
+  --color-text-secondary: #e0dfdf;
+  --color-text-muted: #c5c4c4;
+
+  --color-border: rgba(255, 255, 255, 0.15);
+  --color-border-strong: rgba(255, 255, 255, 0.25);
+
+  --color-gold-dim: rgba(212, 175, 55, 0.20);
+  --color-gold-border: rgba(212, 175, 55, 0.45);
+  --color-gold-glow: rgba(212, 175, 55, 0.25);
+
+  --color-danger-dim: rgba(239, 68, 68, 0.15);
+
+  --color-overlay: rgba(0, 0, 0, 0.60);
 }
 
 /*

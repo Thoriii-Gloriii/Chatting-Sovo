@@ -34,7 +34,7 @@ export const SovoLogo: React.FC<SovoLogoProps> = ({
         {withGlow && (
           <div
             className={`absolute inset-0 rounded-full blur-xl ${animated ? "animate-pulse" : ""}`}
-            style={{ background: `var(--color-gold)/20`, backgroundColor: "rgba(212,175,55,0.18)" }}
+            style={{ backgroundColor: 'var(--color-gold-glow)' }}
           />
         )}
         <img
@@ -57,7 +57,7 @@ export const SovoLogo: React.FC<SovoLogoProps> = ({
           style={{
             display: "none",
             background: "linear-gradient(180deg, var(--color-surface) 0%, var(--color-bg) 100%)",
-            borderColor: "rgba(212,175,55,0.4)",
+            borderColor: 'var(--color-gold-border)',
           }}
         >
           <svg viewBox="0 0 100 100" className="w-full h-full">

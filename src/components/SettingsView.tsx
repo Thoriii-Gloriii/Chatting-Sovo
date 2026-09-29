@@ -101,8 +101,8 @@ const Row: React.FC<{
         className="p-2 flex-shrink-0"
         style={{
           borderRadius: "var(--radius-sm)",
-          backgroundColor: "rgba(212,175,55,0.10)",
-          border: "1px solid rgba(212,175,55,0.25)",
+          backgroundColor: "var(--color-gold-dim)",
+          border: "1px solid var(--color-gold-border)",
           color: "var(--color-gold-bright)",
         }}
       >
@@ -214,8 +214,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         <div
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold"
           style={{
-            backgroundColor: "rgba(212,175,55,0.10)",
-            border: "1px solid rgba(212,175,55,0.30)",
+            backgroundColor: "var(--color-gold-dim)",
+            border: "1px solid var(--color-gold-border)",
             color: "var(--color-gold-bright)",
           }}
         >
@@ -275,7 +275,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   {currentUser.bio}
                 </p>
                 {avatarError && (
-                  <p className="text-[10px] mt-1" style={{ color: "#f87171" }}>{avatarError}</p>
+                  <p className="text-[10px] mt-1" style={{ color: "var(--color-danger-text)" }}>{avatarError}</p>
                 )}
               </div>
 
@@ -285,11 +285,11 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 className="px-3 py-1.5 text-xs font-semibold transition cursor-pointer flex-shrink-0"
                 style={{
                   backgroundColor: "var(--color-elevated)",
-                  border: "1px solid rgba(212,175,55,0.30)",
+                  border: "1px solid var(--color-gold-border)",
                   color: "var(--color-gold)",
                   borderRadius: "var(--radius-sm)",
                 }}
-                onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "rgba(212,175,55,0.10)")}
+                onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "var(--color-gold-dim)")}
                 onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "var(--color-elevated)")}
               >
                 {isEditingUsername ? 'Close' : 'Edit handle'}
@@ -392,7 +392,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                       className="px-2.5 py-1 text-xs font-semibold transition cursor-pointer"
                       style={{
                         borderRadius: "var(--radius-sm)",
-                        backgroundColor: settings.autoLockMinutes === opt.val ? "rgba(212,175,55,0.12)" : "var(--color-elevated)",
+                        backgroundColor: settings.autoLockMinutes === opt.val ? "var(--color-gold-dim)" : "var(--color-elevated)",
                         border: `1px solid ${settings.autoLockMinutes === opt.val ? "var(--color-gold)" : "var(--color-border)"}`,
                         color: settings.autoLockMinutes === opt.val ? "var(--color-gold-bright)" : "var(--color-text-secondary)",
                       }}
@@ -440,7 +440,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                     className="px-3 py-1.5 text-xs font-bold transition cursor-pointer"
                     style={{
                       borderRadius: "var(--radius-sm)",
-                      backgroundColor: settings.defaultStoryDuration === dur ? "rgba(212,175,55,0.12)" : "var(--color-elevated)",
+                      backgroundColor: settings.defaultStoryDuration === dur ? "var(--color-gold-dim)" : "var(--color-elevated)",
                       border: `1px solid ${settings.defaultStoryDuration === dur ? "var(--color-gold)" : "var(--color-border)"}`,
                       color: settings.defaultStoryDuration === dur ? "var(--color-gold-bright)" : "var(--color-text-secondary)",
                     }}
@@ -450,6 +450,24 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 ))}
               </div>
             </div>
+          </Card>
+        </div>
+
+        {/* ── Appearance ── */}
+        <div>
+          <SectionHeader icon={<Moon className="w-3.5 h-3.5" />} label="Appearance" />
+          <Card>
+            <Row
+              icon={<Moon className="w-4 h-4" />}
+              label="Light Mode"
+              sub="Switch between dark obsidian and the #6e6d6d gray theme."
+              right={
+                <Toggle
+                  on={!settings.darkMode}
+                  onChange={() => { sound.playTap(); onUpdateSettings({ darkMode: !settings.darkMode }); }}
+                />
+              }
+            />
           </Card>
         </div>
 
@@ -515,8 +533,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                       <span
                         className="px-2 py-0.5 text-[9px] font-bold rounded-full"
                         style={{
-                          backgroundColor: "rgba(212,175,55,0.10)",
-                          border: "1px solid rgba(212,175,55,0.35)",
+                        backgroundColor: "var(--color-gold-dim)",
+                          border: "1px solid var(--color-gold-border)",
                           color: "var(--color-gold-bright)",
                         }}
                       >
@@ -534,7 +552,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                     onClick={() => { sound.playTap(); onUnlinkDevice(dev.id); }}
                     className="p-2 transition cursor-pointer"
                     style={{ color: "var(--color-text-muted)", borderRadius: "var(--radius-sm)" }}
-                    onMouseEnter={(e) => { e.currentTarget.style.color = "#f87171"; e.currentTarget.style.backgroundColor = "rgba(239,68,68,0.10)"; }}
+                    onMouseEnter={(e) => { e.currentTarget.style.color = "var(--color-danger-text)"; e.currentTarget.style.backgroundColor = "var(--color-danger-dim)"; }}
                     onMouseLeave={(e) => { e.currentTarget.style.color = "var(--color-text-muted)"; e.currentTarget.style.backgroundColor = "transparent"; }}
                     title="Revoke session"
                   >
@@ -586,13 +604,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             onClick={() => { sound.playTap(); onOpenE2EEKeys(); }}
             className="w-full py-4 flex items-center justify-center gap-2 text-sm font-bold transition cursor-pointer"
             style={{
-              backgroundColor: "rgba(212,175,55,0.08)",
-              border: "1px solid rgba(212,175,55,0.35)",
+              backgroundColor: "var(--color-gold-dim)",
+              border: "1px solid var(--color-gold-border)",
               borderRadius: "var(--radius-lg)",
               color: "var(--color-gold-bright)",
             }}
-            onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "rgba(212,175,55,0.14)")}
-            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "rgba(212,175,55,0.08)")}
+            onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "var(--color-gold-border)")}
+            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "var(--color-gold-dim)")}
           >
             <Key className="w-4 h-4" />
             <span>View Cryptographic Identity</span>
@@ -604,13 +622,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             onClick={() => { sound.playTap(); onSignOut(); }}
             className="w-full py-4 flex items-center justify-center gap-2 text-sm font-bold transition cursor-pointer"
             style={{
-              backgroundColor: "rgba(239,68,68,0.06)",
+              backgroundColor: "var(--color-danger-dim)",
               border: "1px solid rgba(239,68,68,0.25)",
               borderRadius: "var(--radius-lg)",
-              color: "#f87171",
+              color: "var(--color-danger-text)",
             }}
-            onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "rgba(239,68,68,0.12)")}
-            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "rgba(239,68,68,0.06)")}
+            onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "rgba(239,68,68,0.15)")}
+            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "var(--color-danger-dim)")}
           >
             <LogOut className="w-4 h-4" />
             <span>Sign Out</span>
@@ -622,13 +640,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       {showQrLinkModal && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center p-4 backdrop-blur-md"
-          style={{ backgroundColor: "rgba(0,0,0,0.85)" }}
+          style={{ backgroundColor: "var(--color-overlay)" }}
         >
           <div
             className="w-full max-w-sm p-6 shadow-2xl text-center relative"
             style={{
               backgroundColor: "var(--color-surface)",
-              border: "1px solid rgba(212,175,55,0.40)",
+              border: "1px solid var(--color-gold-border)",
               borderRadius: "var(--radius-xl)",
               color: "var(--color-text)",
             }}

@@ -1,9 +1,10 @@
 <!doctype html>
-<html lang="en" class="dark">
+<html lang="en" data-theme="dark">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-    <meta name="theme-color" content="#07070b" />
+    <meta name="theme-color" content="#07070b" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#6e6d6d" media="(prefers-color-scheme: light)" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
@@ -12,15 +13,16 @@
     <meta property="og:title" content="S'ovo — Encrypted Messaging" />
     <meta property="og:description" content="Encrypted messaging with TikTok-scrolling 24h & 3-day statuses, group chats, and biometric protection." />
     <meta property="og:type" content="website" />
+    <meta property="og:image" content="/sovo-logo.jpg" />
     <meta name="twitter:card" content="summary_large_image" />
+    <link rel="icon" href="/sovo-logo.jpg" type="image/jpeg" />
+    <link rel="apple-touch-icon" href="/icon-512.png" />
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
   </head>
-  <body class="bg-[#050507] text-[#f4f4f6] selection:bg-[#d4af37]/30 selection:text-[#f3e5ab] overflow-x-hidden antialiased">
+  <body class="selection:bg-[#d4af37]/30 selection:text-[#f3e5ab] overflow-x-hidden antialiased" style="background-color: var(--color-bg); color: var(--color-text);">
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
-
-

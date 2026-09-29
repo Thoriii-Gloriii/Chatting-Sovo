@@ -75,6 +75,12 @@ export default function App() {
   // font-size). See src/hooks/useUIDensity.ts.
   useUIDensity();
 
+  // Keep html[data-theme] in sync with settings.darkMode so CSS tokens
+  // switch instantly across the entire app when the user toggles.
+  const applyTheme = (darkMode: boolean) => {
+    document.documentElement.dataset.theme = darkMode ? 'dark' : 'light';
+  };
+
   // Navigation & App Lifecycle states
   const [appStage, setAppStage] = useState<'splash' | 'auth' | 'main'>('splash');
   const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -177,6 +183,11 @@ export default function App() {
   useEffect(() => {
     sound.setEnabled(settings.soundEffects);
   }, [settings.soundEffects]);
+
+  // Apply dark/light theme to html element whenever darkMode setting changes.
+  useEffect(() => {
+    applyTheme(settings.darkMode);
+  }, [settings.darkMode]);
 
   /**
    * Publish this device's real E2EE public key.
@@ -1158,27 +1169,42 @@ export default function App() {
 
   return (
     <div
-      className="min-h-screen w-full bg-[#030305] text-[#f4f4f6] flex flex-col items-center justify-center p-0 selection:bg-[#d4af37]/30 selection:text-[#f3e5ab]"
+      className="min-h-screen w-full flex flex-col items-center justify-center p-0 selection:bg-[#d4af37]/30 selection:text-[#f3e5ab]"
       id="sovo-app-root"
+      style={{ backgroundColor: 'var(--color-bg)', color: 'var(--color-text)' }}
     >
       {/* Full-screen app container */}
       <div
-        className="w-full overflow-hidden flex flex-col bg-[#07070b] min-h-screen relative"
+        className="w-full overflow-hidden flex flex-col min-h-screen relative"
         id="android-device-chassis"
+        style={{ backgroundColor: 'var(--color-surface)' }}
       >
 
         {/* Material 3 Top App Bar — hidden while a status is open full-screen,
             so nothing but the story content is visible (Instagram/Snapchat-
             style immersive viewer). */}
         {activeTab !== 'statuses' && (
-        <header className="px-4 bg-[#09090e]/95 backdrop-blur-md border-b border-[#1c1b24] flex items-center justify-between sticky top-0 z-40" style={{ paddingTop: 'max(16px, env(safe-area-inset-top))', paddingBottom: '12px' }}>
+        <header className="px-4 backdrop-blur-md flex items-center justify-between sticky top-0 z-40"
+          style={{
+            backgroundColor: 'var(--color-header)',
+            borderBottom: '1px solid var(--color-border)',
+            paddingTop: 'max(16px, env(safe-area-inset-top))',
+            paddingBottom: '12px',
+          }}
+        >
           <div className="flex items-center gap-2.5">
             <SovoLogo size="sm" showText={true} withGlow={true} />
           </div>
 
           {/* Android Knox Security Pill */}
-          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#13120d] border border-[#d4af37]/35 text-[10px] font-semibold text-[#ffd700]">
-            <Lock className="w-2.5 h-2.5 text-[#ffd700]" />
+          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-semibold"
+            style={{
+              backgroundColor: 'var(--color-gold-dim)',
+              border: '1px solid var(--color-gold-border)',
+              color: 'var(--color-gold-bright)',
+            }}
+          >
+            <Lock className="w-2.5 h-2.5" style={{ color: 'var(--color-gold-bright)' }} />
             <span>Knox E2EE</span>
           </div>
 
@@ -1190,7 +1216,12 @@ export default function App() {
                 sound.playTap();
                 setIsBiometricLocked(true);
               }}
-              className="p-2 rounded-xl bg-[#12121a] hover:bg-[#1c1b28] border border-[#232230] text-[#ffd700] hover:border-[#d4af37]/60 transition cursor-pointer"
+              className="p-2 rounded-xl transition cursor-pointer"
+              style={{
+                backgroundColor: 'var(--color-elevated)',
+                border: '1px solid var(--color-border)',
+                color: 'var(--color-gold-bright)',
+              }}
               title="Lock S'ovo with Android Biometrics"
             >
               <Fingerprint className="w-4 h-4" />
@@ -1203,7 +1234,8 @@ export default function App() {
                 sound.playTap();
                 setActiveTab('settings');
               }}
-              className="w-8 h-8 rounded-full object-cover border border-[#d4af37]/60 cursor-pointer hover:scale-105 transition"
+              className="w-8 h-8 rounded-full object-cover cursor-pointer hover:scale-105 transition"
+              style={{ border: '1px solid var(--color-gold-border)' }}
             />
           </div>
         </header>
@@ -1333,27 +1365,27 @@ export default function App() {
             chat room, and hidden during the full-screen status viewer) */}
         {!activeConversation && activeTab !== 'statuses' && (
           <nav
-            className="px-1 bg-[#08080d] border-t border-[#1a1928] flex items-center justify-around z-30 shadow-2xl"
-            style={{ paddingTop: '8px', paddingBottom: 'max(8px, env(safe-area-inset-bottom))' }}
+            className="px-1 flex items-center justify-around z-30 shadow-2xl"
+            style={{
+              backgroundColor: 'var(--color-header)',
+              borderTop: '1px solid var(--color-border)',
+              paddingTop: '8px',
+              paddingBottom: 'max(8px, env(safe-area-inset-bottom))',
+            }}
             id="android-m3-navigation-bar"
           >
             {/* Chats Tab */}
             <button
               type="button"
-              onClick={() => {
-                sound.playTap();
-                setActiveTab('chats');
-              }}
+              onClick={() => { sound.playTap(); setActiveTab('chats'); }}
               className="flex flex-col items-center gap-0.5 transition cursor-pointer flex-1 py-2 nav-tap-target"
             >
-              <div
-                className={`w-12 h-6 rounded-full transition-all duration-200 flex items-center justify-center ${
-                  activeTab === 'chats' ? 'text-[#ffd700]' : 'text-gray-500'
-                }`}
-              >
+              <div className="w-12 h-6 rounded-full transition-all duration-200 flex items-center justify-center"
+                style={{ color: activeTab === 'chats' ? 'var(--color-gold-bright)' : 'var(--color-text-muted)' }}>
                 <MessageSquare className="w-5 h-5 stroke-[1.8]" />
               </div>
-              <span className={`text-[10px] font-medium ${activeTab === 'chats' ? 'text-[#ffd700]' : 'text-gray-500'}`}>
+              <span className="text-[10px] font-medium"
+                style={{ color: activeTab === 'chats' ? 'var(--color-gold-bright)' : 'var(--color-text-muted)' }}>
                 Chats
               </span>
             </button>
@@ -1361,20 +1393,15 @@ export default function App() {
             {/* Calls Tab */}
             <button
               type="button"
-              onClick={() => {
-                sound.playTap();
-                setActiveTab('calls');
-              }}
+              onClick={() => { sound.playTap(); setActiveTab('calls'); }}
               className="flex flex-col items-center gap-0.5 transition cursor-pointer flex-1 py-2 nav-tap-target"
             >
-              <div
-                className={`w-12 h-6 rounded-full transition-all duration-200 flex items-center justify-center ${
-                  activeTab === 'calls' ? 'text-[#ffd700]' : 'text-gray-500'
-                }`}
-              >
+              <div className="w-12 h-6 rounded-full transition-all duration-200 flex items-center justify-center"
+                style={{ color: activeTab === 'calls' ? 'var(--color-gold-bright)' : 'var(--color-text-muted)' }}>
                 <Phone className="w-5 h-5 stroke-[1.8]" />
               </div>
-              <span className={`text-[10px] font-medium ${activeTab === 'calls' ? 'text-[#ffd700]' : 'text-gray-500'}`}>
+              <span className="text-[10px] font-medium"
+                style={{ color: activeTab === 'calls' ? 'var(--color-gold-bright)' : 'var(--color-text-muted)' }}>
                 Calls
               </span>
             </button>
@@ -1382,21 +1409,15 @@ export default function App() {
             {/* Status Tab */}
             <button
               type="button"
-              onClick={() => {
-                sound.playTap();
-                setStatusViewerUserId(null);
-                setActiveTab('statuses');
-              }}
+              onClick={() => { sound.playTap(); setStatusViewerUserId(null); setActiveTab('statuses'); }}
               className="flex flex-col items-center gap-0.5 transition cursor-pointer flex-1 py-2 nav-tap-target"
             >
-              <div
-                className={`w-12 h-6 rounded-full transition-all duration-200 flex items-center justify-center ${
-                  activeTab === 'statuses' ? 'text-[#ffd700]' : 'text-gray-500'
-                }`}
-              >
+              <div className="w-12 h-6 rounded-full transition-all duration-200 flex items-center justify-center"
+                style={{ color: activeTab === 'statuses' ? 'var(--color-gold-bright)' : 'var(--color-text-muted)' }}>
                 <PlaySquare className="w-5 h-5 stroke-[1.8]" />
               </div>
-              <span className={`text-[10px] font-medium ${activeTab === 'statuses' ? 'text-[#ffd700]' : 'text-gray-500'}`}>
+              <span className="text-[10px] font-medium"
+                style={{ color: activeTab === 'statuses' ? 'var(--color-gold-bright)' : 'var(--color-text-muted)' }}>
                 Status
               </span>
             </button>
@@ -1404,35 +1425,28 @@ export default function App() {
             {/* Groups Tab */}
             <button
               type="button"
-              onClick={() => {
-                sound.playTap();
-                setShowGroupCreateModal(true);
-              }}
+              onClick={() => { sound.playTap(); setShowGroupCreateModal(true); }}
               className="flex flex-col items-center gap-0.5 transition cursor-pointer flex-1 py-2 nav-tap-target"
             >
-              <div className="w-12 h-6 rounded-full flex items-center justify-center text-gray-500">
+              <div className="w-12 h-6 rounded-full flex items-center justify-center"
+                style={{ color: 'var(--color-text-muted)' }}>
                 <Users className="w-5 h-5 stroke-[1.8]" />
               </div>
-              <span className="text-[10px] font-medium text-gray-500">Groups</span>
+              <span className="text-[10px] font-medium" style={{ color: 'var(--color-text-muted)' }}>Groups</span>
             </button>
 
             {/* Settings Tab */}
             <button
               type="button"
-              onClick={() => {
-                sound.playTap();
-                setActiveTab('settings');
-              }}
+              onClick={() => { sound.playTap(); setActiveTab('settings'); }}
               className="flex flex-col items-center gap-0.5 transition cursor-pointer flex-1 py-2 nav-tap-target"
             >
-              <div
-                className={`w-12 h-6 rounded-full transition-all duration-200 flex items-center justify-center ${
-                  activeTab === 'settings' ? 'text-[#ffd700]' : 'text-gray-500'
-                }`}
-              >
+              <div className="w-12 h-6 rounded-full transition-all duration-200 flex items-center justify-center"
+                style={{ color: activeTab === 'settings' ? 'var(--color-gold-bright)' : 'var(--color-text-muted)' }}>
                 <SettingsIcon className="w-5 h-5 stroke-[1.8]" />
               </div>
-              <span className={`text-[10px] font-medium ${activeTab === 'settings' ? 'text-[#ffd700]' : 'text-gray-500'}`}>
+              <span className="text-[10px] font-medium"
+                style={{ color: activeTab === 'settings' ? 'var(--color-gold-bright)' : 'var(--color-text-muted)' }}>
                 Settings
               </span>
             </button>
