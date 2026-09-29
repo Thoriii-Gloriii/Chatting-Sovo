@@ -65,4 +65,15 @@ public class MainActivity extends BridgeActivity {
             });
         }
     }
+
+    @Override
+    public void onPause() {
+        super.onPause();
+        // Prevent Capacitor from pausing the WebView when the app is backgrounded.
+        // This is required to keep WebRTC connections, audio, and WebSockets alive.
+        if (this.bridge != null && this.bridge.getWebView() != null) {
+            this.bridge.getWebView().onResume();
+            this.bridge.getWebView().resumeTimers();
+        }
+    }
 }
