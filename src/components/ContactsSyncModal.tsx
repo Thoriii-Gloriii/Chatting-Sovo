@@ -1,19 +1,14 @@
 import React, { useState } from 'react';
 import { motion } from 'motion/react';
-import { SyncedContact, Conversation, User } from '../types';
-
+import { SyncedContact } from '../types';
 import {
   Users,
   Search,
-  RefreshCw,
   ShieldCheck,
   Lock,
-  UserPlus,
   MessageSquare,
   Sparkles,
-  CheckCircle2,
   X,
-  Share2,
   AtSign,
 } from 'lucide-react';
 import { sound } from '../lib/sound';
@@ -43,7 +38,6 @@ export const ContactsSyncModal: React.FC<ContactsSyncModalProps> = ({
     e.preventDefault();
     if (!globalUsernameInput.trim()) return;
     sound.playTap();
-
     const cleanHandle = globalUsernameInput.trim().replace(/^@/, '').toLowerCase();
     const found = contacts.find((c) => c.sovoUsername?.toLowerCase() === cleanHandle);
     setGlobalSearchResult(found || null);
@@ -56,111 +50,159 @@ export const ContactsSyncModal: React.FC<ContactsSyncModalProps> = ({
       c.sovoUsername?.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
+  const inputStyle: React.CSSProperties = {
+    backgroundColor: "var(--color-elevated)",
+    border: "1px solid var(--color-border)",
+    color: "var(--color-text)",
+    borderRadius: "var(--radius-md)",
+    outline: "none",
+  };
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 backdrop-blur-md"
+      style={{ backgroundColor: "rgba(0,0,0,0.85)" }}
+    >
       <motion.div
         initial={{ scale: 0.95, opacity: 0, y: 15 }}
         animate={{ scale: 1, opacity: 1, y: 0 }}
         exit={{ scale: 0.95, opacity: 0 }}
-        className="w-full max-w-lg max-h-[85vh] bg-[#0c0c11] border border-[#d4af37]/35 rounded-3xl p-6 shadow-2xl flex flex-col text-white relative overflow-hidden"
+        className="w-full max-w-lg max-h-[85vh] p-6 shadow-2xl flex flex-col relative overflow-hidden"
+        style={{
+          backgroundColor: "var(--color-surface)",
+          border: "1px solid rgba(212,175,55,0.35)",
+          borderRadius: "var(--radius-xl)",
+          color: "var(--color-text)",
+        }}
         id="sovo-contacts-sync-modal"
       >
-        {/* Ambient Glow */}
-        <div className="absolute -top-20 right-10 w-48 h-48 rounded-full bg-[#d4af37]/15 blur-3xl pointer-events-none" />
+        {/* Ambient glow */}
+        <div
+          className="absolute -top-20 right-10 w-48 h-48 rounded-full blur-3xl pointer-events-none"
+          style={{ backgroundColor: "rgba(212,175,55,0.12)" }}
+        />
 
         {/* Header */}
-        <div className="flex items-center justify-between mb-4 pb-3 border-b border-[#202028]">
+        <div
+          className="flex items-center justify-between mb-4 pb-3"
+          style={{ borderBottom: "1px solid var(--color-border)" }}
+        >
           <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-2xl bg-[#1c180e] border border-[#d4af37]/40 text-[#ffd700]">
+            <div
+              className="p-2.5"
+              style={{
+                borderRadius: "var(--radius-md)",
+                backgroundColor: "rgba(212,175,55,0.12)",
+                border: "1px solid rgba(212,175,55,0.40)",
+                color: "var(--color-gold-bright)",
+              }}
+            >
               <Users className="w-5 h-5" />
             </div>
             <div>
               <h3 className="font-display font-bold text-lg text-gold-glossy">
-                Address Book & Discovery
+                Address Book &amp; Discovery
               </h3>
-              <p className="text-xs text-gray-400">Find contacts anonymously on S'ovo</p>
+              <p className="text-xs" style={{ color: "var(--color-text-secondary)" }}>
+                Find contacts anonymously on S&apos;ovo
+              </p>
             </div>
           </div>
 
           <button
             type="button"
-            onClick={() => {
-              sound.playTap();
-              onClose();
+            onClick={() => { sound.playTap(); onClose(); }}
+            className="p-1.5 rounded-full transition"
+            style={{
+              color: "var(--color-text-secondary)",
+              backgroundColor: "var(--color-elevated)",
             }}
-            className="p-1.5 rounded-full text-gray-400 hover:text-white bg-[#14141c] hover:bg-[#20202c]"
+            onMouseEnter={(e) => (e.currentTarget.style.color = "var(--color-text)")}
+            onMouseLeave={(e) => (e.currentTarget.style.color = "var(--color-text-secondary)")}
           >
             <X className="w-4 h-4" />
           </button>
         </div>
 
         {/* Privacy banner */}
-        <div className="flex items-start gap-2.5 p-3 rounded-2xl bg-[#121219] border border-[#272635] mb-4 text-xs text-gray-300">
-          <ShieldCheck className="w-4 h-4 text-[#ffd700] flex-shrink-0 mt-0.5" />
-          <div className="text-[11px] leading-relaxed text-gray-300">
-            <span className="font-semibold text-white">Find real S'ovo accounts: </span>
+        <div
+          className="flex items-start gap-2.5 p-3 mb-4 text-xs"
+          style={{
+            backgroundColor: "var(--color-elevated)",
+            border: "1px solid var(--color-border)",
+            borderRadius: "var(--radius-md)",
+          }}
+        >
+          <ShieldCheck className="w-4 h-4 flex-shrink-0 mt-0.5" style={{ color: "var(--color-gold-bright)" }} />
+          <div className="text-[11px] leading-relaxed" style={{ color: "var(--color-text-secondary)" }}>
+            <span className="font-semibold" style={{ color: "var(--color-text)" }}>
+              Find real S&apos;ovo accounts:{' '}
+            </span>
             Browse everyone currently registered, or jump straight to someone by their @username.
           </div>
         </div>
 
-        {/* Tab switch: Discover real accounts vs Global @username search */}
-        <div className="grid grid-cols-2 gap-2 p-1 bg-[#14141d] border border-[#2b2a38] rounded-xl mb-4 text-xs font-semibold">
-          <button
-            type="button"
-            onClick={() => {
-              sound.playTap();
-              setActiveTab('discover');
-            }}
-            className={`py-2 rounded-lg transition ${
-              activeTab === 'discover'
-                ? 'bg-[#221c0e] text-[#ffd700] border border-[#d4af37]/40 shadow-sm'
-                : 'text-gray-400 hover:text-white'
-            }`}
-          >
-            Discover ({contacts.length})
-          </button>
-
-          <button
-            type="button"
-            onClick={() => {
-              sound.playTap();
-              setActiveTab('username');
-            }}
-            className={`py-2 rounded-lg transition ${
-              activeTab === 'username'
-                ? 'bg-[#221c0e] text-[#ffd700] border border-[#d4af37]/40 shadow-sm'
-                : 'text-gray-400 hover:text-white'
-            }`}
-          >
-            Search by @Username
-          </button>
+        {/* Tab switcher */}
+        <div
+          className="grid grid-cols-2 gap-2 p-1 mb-4 text-xs font-semibold"
+          style={{
+            backgroundColor: "var(--color-elevated)",
+            border: "1px solid var(--color-border)",
+            borderRadius: "var(--radius-md)",
+          }}
+        >
+          {(['discover', 'username'] as const).map((tab) => (
+            <button
+              key={tab}
+              type="button"
+              onClick={() => { sound.playTap(); setActiveTab(tab); }}
+              className="py-2 transition"
+              style={{
+                borderRadius: "var(--radius-sm)",
+                backgroundColor: activeTab === tab ? "rgba(212,175,55,0.12)" : "transparent",
+                border: activeTab === tab ? "1px solid rgba(212,175,55,0.40)" : "1px solid transparent",
+                color: activeTab === tab ? "var(--color-gold-bright)" : "var(--color-text-secondary)",
+              }}
+            >
+              {tab === 'discover' ? `Discover (${contacts.length})` : 'Search by @Username'}
+            </button>
+          ))}
         </div>
 
         {activeTab === 'discover' ? (
           <>
-            {/* Search Bar */}
+            {/* Search bar */}
             <div className="flex items-center gap-2 mb-4">
               <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                <Search
+                  className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4"
+                  style={{ color: "var(--color-text-secondary)" }}
+                />
                 <input
                   type="text"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   placeholder="Filter people or handles..."
-                  className="w-full pl-9 pr-3 py-2 bg-[#12121a] border border-[#2c2b38] focus:border-[#ffd700] rounded-xl text-xs text-white placeholder-gray-500 outline-none"
+                  className="w-full pl-9 pr-3 py-2 text-xs"
+                  style={inputStyle}
+                  onFocus={(e) => (e.target.style.borderColor = "var(--color-gold)")}
+                  onBlur={(e) => (e.target.style.borderColor = "var(--color-border)")}
                 />
               </div>
             </div>
 
-            {/* Contacts Scrollable List */}
+            {/* Contacts list */}
             <div className="flex-1 overflow-y-auto space-y-4 pr-1 scrollbar-thin">
               <div>
-                <p className="text-[11px] font-bold uppercase tracking-wider text-[#d4af37] mb-2 flex items-center gap-1">
-                  <Sparkles className="w-3 h-3" /> On S'ovo ({filteredContacts.length})
+                <p
+                  className="text-[11px] font-bold uppercase tracking-wider mb-2 flex items-center gap-1"
+                  style={{ color: "var(--color-gold)" }}
+                >
+                  <Sparkles className="w-3 h-3" /> On S&apos;ovo ({filteredContacts.length})
                 </p>
 
                 {filteredContacts.length === 0 ? (
-                  <p className="text-xs text-gray-500 py-6 text-center">
+                  <p className="text-xs py-6 text-center" style={{ color: "var(--color-text-muted)" }}>
                     No one else has signed up yet — invite a friend!
                   </p>
                 ) : (
@@ -168,35 +210,49 @@ export const ContactsSyncModal: React.FC<ContactsSyncModalProps> = ({
                     {filteredContacts.map((contact) => (
                       <div
                         key={contact.id}
-                        className="p-2.5 rounded-2xl bg-[#111117] hover:bg-[#181822] border border-[#24232f] hover:border-[#d4af37]/40 transition flex items-center justify-between"
+                        className="p-2.5 flex items-center justify-between transition"
+                        style={{
+                          backgroundColor: "var(--color-elevated)",
+                          border: "1px solid var(--color-border)",
+                          borderRadius: "var(--radius-md)",
+                        }}
+                        onMouseEnter={(e) => (e.currentTarget.style.borderColor = "rgba(212,175,55,0.40)")}
+                        onMouseLeave={(e) => (e.currentTarget.style.borderColor = "var(--color-border)")}
                       >
                         <div className="flex items-center gap-3">
                           <img
-                            src={contact.sovoAvatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100'}
+                            src={contact.sovoAvatar || 'https://ui-avatars.com/api/?name=?&background=222230&color=ffd700'}
                             alt={contact.name}
-                            className="w-10 h-10 rounded-full object-cover border border-[#d4af37]/50"
+                            className="w-10 h-10 rounded-full object-cover"
+                            style={{ border: "1px solid rgba(212,175,55,0.40)" }}
                           />
                           <div>
                             <div className="flex items-center gap-1.5">
-                              <span className="text-xs font-semibold text-white">{contact.name}</span>
-                              <span className="text-[11px] font-mono text-[#ffd700]">
+                              <span className="text-xs font-semibold" style={{ color: "var(--color-text)" }}>
+                                {contact.name}
+                              </span>
+                              <span className="text-[11px] font-mono" style={{ color: "var(--color-gold-bright)" }}>
                                 @{contact.sovoUsername}
                               </span>
                             </div>
-                            <p className="text-[10px] text-gray-400 truncate max-w-[200px]">
-                              {contact.status || 'S\u2019ovo member'}
+                            <p className="text-[10px] truncate max-w-[200px]" style={{ color: "var(--color-text-secondary)" }}>
+                              {contact.status || "S\u2019ovo member"}
                             </p>
                           </div>
                         </div>
 
                         <button
                           type="button"
-                          onClick={() => {
-                            sound.playTap();
-                            onStartDirectChat(contact);
-                            onClose();
+                          onClick={() => { sound.playTap(); onStartDirectChat(contact); onClose(); }}
+                          className="flex items-center gap-1 px-3 py-1.5 text-xs font-semibold cursor-pointer active:scale-95 transition"
+                          style={{
+                            backgroundColor: "rgba(212,175,55,0.10)",
+                            border: "1px solid rgba(212,175,55,0.50)",
+                            color: "var(--color-gold-bright)",
+                            borderRadius: "var(--radius-sm)",
                           }}
-                          className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-gradient-to-r from-[#2a220f] to-[#17140b] border border-[#d4af37]/60 text-[#ffd700] text-xs font-semibold hover:border-[#ffd700] cursor-pointer active:scale-95"
+                          onMouseEnter={(e) => (e.currentTarget.style.borderColor = "var(--color-gold-bright)")}
+                          onMouseLeave={(e) => (e.currentTarget.style.borderColor = "rgba(212,175,55,0.50)")}
                         >
                           <MessageSquare className="w-3.5 h-3.5" />
                           <span>Chat</span>
@@ -209,69 +265,81 @@ export const ContactsSyncModal: React.FC<ContactsSyncModalProps> = ({
             </div>
           </>
         ) : (
-          /* Global @Username Search Tab */
+          /* @Username search tab */
           <div className="space-y-4">
             <form onSubmit={handleSearchUsername} className="space-y-3">
               <div>
-                <label className="block text-xs font-semibold text-gray-300 mb-1.5">
+                <label
+                  className="block text-xs font-semibold mb-1.5"
+                  style={{ color: "var(--color-text-secondary)" }}
+                >
                   Find Anyone by Unique @Username (Strict Anonymity)
                 </label>
                 <div className="relative">
-                  <AtSign className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[#ffd700]" />
+                  <AtSign
+                    className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4"
+                    style={{ color: "var(--color-gold-bright)" }}
+                  />
                   <input
                     type="text"
                     value={globalUsernameInput}
-                    onChange={(e) => {
-                      setGlobalUsernameInput(e.target.value);
-                      setSearchAttempted(false);
-                      setGlobalSearchResult(null);
-                    }}
+                    onChange={(e) => { setGlobalUsernameInput(e.target.value); setSearchAttempted(false); setGlobalSearchResult(null); }}
                     placeholder="e.g. elena_r or thorne_x"
-                    className="w-full pl-10 pr-4 py-2.5 bg-[#12121a] border border-[#2c2b38] focus:border-[#ffd700] rounded-xl text-xs text-white placeholder-gray-500 outline-none"
+                    className="w-full pl-10 pr-4 py-2.5 text-xs"
+                    style={inputStyle}
+                    onFocus={(e) => (e.target.style.borderColor = "var(--color-gold)")}
+                    onBlur={(e) => (e.target.style.borderColor = "var(--color-border)")}
                   />
                 </div>
               </div>
 
               <button
                 type="submit"
-                className="w-full py-2.5 rounded-xl gold-glossy-button text-black font-display font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow active:scale-98"
+                className="w-full py-2.5 gold-glossy-button font-display font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow active:scale-98"
+                style={{ borderRadius: "var(--radius-md)", color: "var(--color-bg)" }}
               >
-                <Search className="w-3.5 h-3.5 text-black" />
-                <span>Search S'ovo Directory</span>
+                <Search className="w-3.5 h-3.5" />
+                <span>Search S&apos;ovo Directory</span>
               </button>
             </form>
 
             {globalSearchResult && (
-              <div className="p-4 rounded-2xl bg-[#111118] border border-[#d4af37]/40 flex items-center justify-between animate-fadeIn">
+              <div
+                className="p-4 flex items-center justify-between"
+                style={{
+                  backgroundColor: "var(--color-elevated)",
+                  border: "1px solid rgba(212,175,55,0.40)",
+                  borderRadius: "var(--radius-md)",
+                }}
+              >
                 <div className="flex items-center gap-3">
                   <img
                     src={globalSearchResult.sovoAvatar}
                     alt={globalSearchResult.name}
-                    className="w-11 h-11 rounded-full object-cover border-2 border-[#d4af37]"
+                    className="w-11 h-11 rounded-full object-cover"
+                    style={{ border: "2px solid var(--color-gold)" }}
                   />
                   <div>
                     <div className="flex items-center gap-1.5">
-                      <span className="text-xs font-semibold text-white">
+                      <span className="text-xs font-semibold" style={{ color: "var(--color-text)" }}>
                         {globalSearchResult.name}
                       </span>
-                      <span className="text-[11px] font-mono text-[#ffd700]">
+                      <span className="text-[11px] font-mono" style={{ color: "var(--color-gold-bright)" }}>
                         @{globalSearchResult.sovoUsername}
                       </span>
                     </div>
-                    <p className="text-[10px] text-gray-400 flex items-center gap-1 mt-0.5">
-                      <Lock className="w-3 h-3 text-[#d4af37]" /> End-to-End Encrypted Identity
+                    <p className="text-[10px] flex items-center gap-1 mt-0.5" style={{ color: "var(--color-text-secondary)" }}>
+                      <Lock className="w-3 h-3" style={{ color: "var(--color-gold)" }} />
+                      End-to-End Encrypted Identity
                     </p>
                   </div>
                 </div>
 
                 <button
                   type="button"
-                  onClick={() => {
-                    sound.playTap();
-                    onStartDirectChat(globalSearchResult);
-                    onClose();
-                  }}
-                  className="px-3.5 py-2 rounded-xl gold-gradient-bg text-black font-semibold text-xs flex items-center gap-1.5 shadow cursor-pointer active:scale-95"
+                  onClick={() => { sound.playTap(); onStartDirectChat(globalSearchResult); onClose(); }}
+                  className="px-3.5 py-2 gold-gradient-bg font-semibold text-xs flex items-center gap-1.5 shadow cursor-pointer active:scale-95"
+                  style={{ borderRadius: "var(--radius-sm)", color: "var(--color-bg)" }}
                 >
                   <MessageSquare className="w-3.5 h-3.5" />
                   <span>Start Chat</span>
@@ -280,8 +348,8 @@ export const ContactsSyncModal: React.FC<ContactsSyncModalProps> = ({
             )}
 
             {searchAttempted && !globalSearchResult && (
-              <p className="text-xs text-gray-500 text-center py-4">
-                No S'ovo account found with that username.
+              <p className="text-xs text-center py-4" style={{ color: "var(--color-text-muted)" }}>
+                No S&apos;ovo account found with that username.
               </p>
             )}
           </div>
@@ -290,4 +358,3 @@ export const ContactsSyncModal: React.FC<ContactsSyncModalProps> = ({
     </div>
   );
 };
-

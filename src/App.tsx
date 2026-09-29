@@ -1160,7 +1160,6 @@ export default function App() {
     <div
       className="min-h-screen w-full bg-[#030305] text-[#f4f4f6] flex flex-col items-center justify-center p-0 selection:bg-[#d4af37]/30 selection:text-[#f3e5ab]"
       id="sovo-app-root"
-      style={{ zoom: '0.95' }}
     >
       {/* Full-screen app container */}
       <div
@@ -1172,7 +1171,7 @@ export default function App() {
             so nothing but the story content is visible (Instagram/Snapchat-
             style immersive viewer). */}
         {activeTab !== 'statuses' && (
-        <header className="h-15 px-4 bg-[#09090e]/95 backdrop-blur-md border-b border-[#1c1b24] flex items-center justify-between sticky top-0 z-40">
+        <header className="px-4 bg-[#09090e]/95 backdrop-blur-md border-b border-[#1c1b24] flex items-center justify-between sticky top-0 z-40" style={{ paddingTop: 'max(16px, env(safe-area-inset-top))', paddingBottom: '12px' }}>
           <div className="flex items-center gap-2.5">
             <SovoLogo size="sm" showText={true} withGlow={true} />
           </div>
@@ -1334,7 +1333,8 @@ export default function App() {
             chat room, and hidden during the full-screen status viewer) */}
         {!activeConversation && activeTab !== 'statuses' && (
           <nav
-            className="h-16 px-1 bg-[#08080d] border-t border-[#1a1928] flex items-center justify-around z-30 shadow-2xl"
+            className="px-1 bg-[#08080d] border-t border-[#1a1928] flex items-center justify-around z-30 shadow-2xl"
+            style={{ paddingTop: '8px', paddingBottom: 'max(8px, env(safe-area-inset-bottom))' }}
             id="android-m3-navigation-bar"
           >
             {/* Chats Tab */}

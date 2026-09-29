@@ -42,9 +42,6 @@ export const AuthLanding: React.FC<AuthLandingProps> = ({ onAuthenticate }) => {
         if (!data.user) throw new Error('Sign-up did not return a user.');
 
         if (!data.session) {
-          // Project has "Confirm email" turned on — there's no session yet,
-          // so there's no user to show the hero page for. Tell the person
-          // instead of pretending sign-up finished.
           setErrorMsg("Account created — check your email to confirm it, then sign in.");
           setMode("signin");
           setIsSubmitting(false);
@@ -66,10 +63,6 @@ export const AuthLanding: React.FC<AuthLandingProps> = ({ onAuthenticate }) => {
           pinCode: "0000", e2eePublicKey: "GEN_KEY", e2eeFingerprint: "SOVO-E2EE-GEN"
         };
 
-        // Only the Auth call needs to be awaited to know signup succeeded.
-        // The profile row write doesn't block anything the user sees next,
-        // so let it finish in the background instead of holding up the
-        // hero page on another network round-trip.
         sound.playBiometricSuccess();
         onAuthenticate(newUser);
 
@@ -96,9 +89,6 @@ export const AuthLanding: React.FC<AuthLandingProps> = ({ onAuthenticate }) => {
     }
   };
 
-  // On mount: pick up a session left by a web OAuth redirect (Supabase parses
-  // the redirect URL and establishes the session automatically; we just need
-  // to check whether one is already there and load/create its profile).
   useEffect(() => {
     let cancelled = false;
     supabase.auth.getSession().then(async ({ data: { session } }) => {
@@ -126,8 +116,6 @@ export const AuthLanding: React.FC<AuthLandingProps> = ({ onAuthenticate }) => {
     setIsSubmitting(true);
     try {
       if (Capacitor.isNativePlatform()) {
-        // --- Android APK: native Google Sign-In, then hand the ID token
-        // straight to Supabase — no browser redirect needed. ---
         await GoogleAuth.initialize({
           clientId: '480015860775-kmnqqneo9ceafsfu724rpfcq2444bskt.apps.googleusercontent.com',
           scopes: ['profile', 'email'],
@@ -146,10 +134,6 @@ export const AuthLanding: React.FC<AuthLandingProps> = ({ onAuthenticate }) => {
         sound.playBiometricSuccess();
         onAuthenticate(appUser);
       } else {
-        // --- Web: Supabase's OAuth flow is a full-page redirect (no popup
-        // API like Firebase's signInWithPopup). This navigates away; the
-        // mount effect above picks the session back up when the page
-        // reloads after Google redirects back. ---
         const { error } = await supabase.auth.signInWithOAuth({
           provider: 'google',
           options: { redirectTo: window.location.origin },
@@ -170,91 +154,231 @@ export const AuthLanding: React.FC<AuthLandingProps> = ({ onAuthenticate }) => {
     setErrorMsg(`${_provider} login is not yet implemented.`);
   };
 
+  /* ─── Shared input class (tokens via inline style) ─── */
+  const inputBase: React.CSSProperties = {
+    backgroundColor: "var(--color-surface)",
+    borderColor: "var(--color-border)",
+    color: "var(--color-text)",
+    borderRadius: "var(--radius-xl)",
+  };
+
   return (
-    <div className="min-h-screen w-full flex flex-col items-center justify-center bg-[#050507] text-[#f4f4f6] relative overflow-hidden px-5 py-8" id="sovo-auth-landing">
+    <div
+      className="min-h-screen w-full flex flex-col items-center justify-center relative overflow-hidden px-5 py-8"
+      style={{ backgroundColor: "var(--color-bg)", color: "var(--color-text)" }}
+      id="sovo-auth-landing"
+    >
       {/* Ambient gold background */}
       <div className="absolute inset-0 pointer-events-none overflow-hidden">
-        <div className="absolute -top-20 -right-20 w-72 h-72 rounded-full bg-gradient-to-br from-[#d4af37]/20 to-transparent blur-[80px]" />
-        <div className="absolute -bottom-20 -left-20 w-80 h-80 rounded-full bg-gradient-to-tr from-[#c29826]/15 to-transparent blur-[100px]" />
+        <div
+          className="absolute -top-20 -right-20 w-72 h-72 rounded-full blur-[80px]"
+          style={{ background: "radial-gradient(circle, rgba(212,175,55,0.20) 0%, transparent 70%)" }}
+        />
+        <div
+          className="absolute -bottom-20 -left-20 w-80 h-80 rounded-full blur-[100px]"
+          style={{ background: "radial-gradient(circle, rgba(194,152,38,0.15) 0%, transparent 70%)" }}
+        />
         <svg className="absolute top-0 right-0 w-72 h-72 opacity-25" viewBox="0 0 300 300">
           <path d="M300 0 Q180 120 120 300" stroke="url(#gs1)" strokeWidth="1.5" fill="none"/>
           <path d="M270 0 Q150 130 90 300" stroke="url(#gs1)" strokeWidth="0.8" fill="none"/>
-          <defs><linearGradient id="gs1" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stopColor="#ffd700" stopOpacity="0.9"/><stop offset="100%" stopColor="#d4af37" stopOpacity="0"/></linearGradient></defs>
+          <defs><linearGradient id="gs1" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stopColor="var(--color-gold-bright)" stopOpacity="0.9"/><stop offset="100%" stopColor="var(--color-gold)" stopOpacity="0"/></linearGradient></defs>
         </svg>
         <svg className="absolute bottom-0 left-0 w-64 h-64 opacity-20" viewBox="0 0 300 300">
           <path d="M0 300 Q120 180 300 120" stroke="url(#gs2)" strokeWidth="1.5" fill="none"/>
-          <defs><linearGradient id="gs2" x1="0%" y1="100%" x2="100%" y2="0%"><stop offset="0%" stopColor="#ffd700" stopOpacity="0.6"/><stop offset="100%" stopColor="#d4af37" stopOpacity="0"/></linearGradient></defs>
+          <defs><linearGradient id="gs2" x1="0%" y1="100%" x2="100%" y2="0%"><stop offset="0%" stopColor="var(--color-gold-bright)" stopOpacity="0.6"/><stop offset="100%" stopColor="var(--color-gold)" stopOpacity="0"/></linearGradient></defs>
         </svg>
       </div>
 
       {/* Logo */}
-      <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }} className="flex flex-col items-center mb-8 relative z-10">
+      <motion.div
+        initial={{ opacity: 0, y: -20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5 }}
+        className="flex flex-col items-center mb-8 relative z-10"
+      >
         <SovoLogo size="2xl" withGlow animated />
-        <h1 className="text-3xl font-display font-extrabold text-gold-glossy mt-4 mb-1">Welcome to S&apos;ovo.</h1>
-        <p className="text-sm text-[#888] font-medium">Privacy first. Always.</p>
+        <h1 className="text-3xl font-display font-extrabold text-gold-glossy mt-4 mb-1">
+          Welcome to S&apos;ovo.
+        </h1>
+        <p className="text-sm font-medium" style={{ color: "var(--color-text-secondary)" }}>
+          Privacy first. Always.
+        </p>
       </motion.div>
 
       {/* Form card */}
-      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, delay: 0.1 }} className="w-full max-w-sm relative z-10">
-        {/* Toggle */}
-        <div className="grid grid-cols-2 gap-0 mb-6 bg-[#0e0e16] rounded-2xl p-1 border border-[#222230]">
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5, delay: 0.1 }}
+        className="w-full max-w-sm relative z-10"
+      >
+        {/* Mode toggle */}
+        <div
+          className="grid grid-cols-2 gap-0 mb-6 p-1"
+          style={{
+            backgroundColor: "var(--color-surface)",
+            border: "1px solid var(--color-border)",
+            borderRadius: "var(--radius-xl)",
+          }}
+        >
           {(["signin", "signup"] as const).map((m) => (
-            <button key={m} type="button" onClick={() => { setMode(m); setErrorMsg(""); sound.playTap(); }}
-              className={`py-2.5 rounded-xl text-sm font-semibold transition-all ${mode === m ? "gold-glossy-button text-[#050507] shadow-md" : "text-[#666] hover:text-white"}`}>
+            <button
+              key={m}
+              type="button"
+              onClick={() => { setMode(m); setErrorMsg(""); sound.playTap(); }}
+              className={`py-2.5 text-sm font-semibold transition-all ${
+                mode === m
+                  ? "gold-glossy-button text-[#050507] shadow-md"
+                  : "hover:text-white"
+              }`}
+              style={{
+                borderRadius: "var(--radius-lg)",
+                color: mode === m ? undefined : "var(--color-text-muted)",
+              }}
+            >
               {m === "signin" ? "Sign In" : "Sign Up"}
             </button>
           ))}
         </div>
 
-        {errorMsg && <div className="mb-4 px-3 py-2 rounded-xl bg-red-950/40 border border-red-800/40 text-red-300 text-xs text-center">{errorMsg}</div>}
+        {errorMsg && (
+          <div
+            className="mb-4 px-3 py-2 text-xs text-center"
+            style={{
+              backgroundColor: "rgba(239,68,68,0.12)",
+              border: "1px solid rgba(239,68,68,0.35)",
+              borderRadius: "var(--radius-md)",
+              color: "#fca5a5",
+            }}
+          >
+            {errorMsg}
+          </div>
+        )}
 
         <form onSubmit={handleSubmit} className="space-y-3">
           {mode === "signup" && (
             <div className="relative">
-              <input type="text" value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="Display Name"
-                className="w-full px-4 py-4 bg-[#0e0e16] border border-[#222230] focus:border-[#d4af37]/50 rounded-2xl text-sm text-white placeholder-[#444456] outline-none transition"/>
+              <input
+                type="text"
+                value={displayName}
+                onChange={(e) => setDisplayName(e.target.value)}
+                placeholder="Display Name"
+                className="w-full px-4 py-4 text-sm outline-none transition border"
+                style={{
+                  ...inputBase,
+                  // eslint-disable-next-line @typescript-eslint/naming-convention
+                  ["--tw-ring-color" as string]: "transparent",
+                }}
+                onFocus={(e) => (e.target.style.borderColor = "rgba(212,175,55,0.5)")}
+                onBlur={(e) => (e.target.style.borderColor = "var(--color-border)")}
+              />
             </div>
           )}
 
-          {/* Identifier */}
+          {/* Email */}
           <div className="relative">
-            <svg className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-[#555568]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+            <svg
+              className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4"
+              style={{ color: "var(--color-text-muted)" }}
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={1.8}
+            >
               <path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/>
             </svg>
-            <input type="email" value={identifier} onChange={(e) => setIdentifier(e.target.value)} placeholder="Email address"
-              className="w-full pl-11 pr-4 py-4 bg-[#0e0e16] border border-[#222230] focus:border-[#d4af37]/50 rounded-2xl text-sm text-white placeholder-[#444456] outline-none transition"/>
+            <input
+              type="email"
+              value={identifier}
+              onChange={(e) => setIdentifier(e.target.value)}
+              placeholder="Email address"
+              className="w-full pl-11 pr-4 py-4 text-sm outline-none transition border"
+              style={inputBase}
+              onFocus={(e) => (e.target.style.borderColor = "rgba(212,175,55,0.5)")}
+              onBlur={(e) => (e.target.style.borderColor = "var(--color-border)")}
+            />
           </div>
 
           {/* Password */}
           <div className="relative">
-            <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-[#555568]" />
-            <input type={showPassword ? "text" : "password"} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Password"
-              className="w-full pl-11 pr-12 py-4 bg-[#0e0e16] border border-[#222230] focus:border-[#d4af37]/50 rounded-2xl text-sm text-white placeholder-[#444456] outline-none transition"/>
-            <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-4 top-1/2 -translate-y-1/2 text-[#555568] hover:text-[#d4af37] transition">
+            <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4" style={{ color: "var(--color-text-muted)" }} />
+            <input
+              type={showPassword ? "text" : "password"}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Password"
+              className="w-full pl-11 pr-12 py-4 text-sm outline-none transition border"
+              style={inputBase}
+              onFocus={(e) => (e.target.style.borderColor = "rgba(212,175,55,0.5)")}
+              onBlur={(e) => (e.target.style.borderColor = "var(--color-border)")}
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword(!showPassword)}
+              className="absolute right-4 top-1/2 -translate-y-1/2 transition"
+              style={{ color: "var(--color-text-muted)" }}
+              onMouseEnter={(e) => ((e.target as HTMLElement).style.color = "var(--color-gold)")}
+              onMouseLeave={(e) => ((e.target as HTMLElement).style.color = "var(--color-text-muted)")}
+            >
               {showPassword ? <EyeOff className="w-4 h-4"/> : <Eye className="w-4 h-4"/>}
             </button>
           </div>
 
           {mode === "signin" && (
-            <div><button type="button" className="text-xs text-[#d4af37] hover:text-[#ffd700] transition font-medium">Forgot password?</button></div>
+            <div>
+              <button
+                type="button"
+                className="text-xs font-medium transition"
+                style={{ color: "var(--color-gold)" }}
+                onMouseEnter={(e) => ((e.target as HTMLElement).style.color = "var(--color-gold-bright)")}
+                onMouseLeave={(e) => ((e.target as HTMLElement).style.color = "var(--color-gold)")}
+              >
+                Forgot password?
+              </button>
+            </div>
           )}
 
-          <button type="submit" disabled={isSubmitting}
-            className="w-full py-4 rounded-2xl gold-glossy-button text-[#050507] font-display font-bold text-sm flex items-center justify-center gap-2 cursor-pointer transition active:scale-[0.98]">
-            {isSubmitting ? <div className="w-5 h-5 border-2 border-black border-t-transparent rounded-full animate-spin"/> : <><span>{mode === "signin" ? "Sign In" : "Create Account"}</span><ArrowRight className="w-4 h-4"/></>}
+          <button
+            type="submit"
+            disabled={isSubmitting}
+            className="w-full py-4 gold-glossy-button font-display font-bold text-sm flex items-center justify-center gap-2 cursor-pointer transition active:scale-[0.98] disabled:opacity-60"
+            style={{ borderRadius: "var(--radius-xl)", color: "var(--color-bg)" }}
+          >
+            {isSubmitting
+              ? <div className="w-5 h-5 border-2 border-black border-t-transparent rounded-full animate-spin"/>
+              : <><span>{mode === "signin" ? "Sign In" : "Create Account"}</span><ArrowRight className="w-4 h-4"/></>
+            }
           </button>
         </form>
 
         {/* Divider */}
         <div className="flex items-center gap-3 my-5">
-          <div className="flex-1 h-px bg-[#1a1a26]"/>
-          <span className="text-xs text-[#444456]">or continue with</span>
-          <div className="flex-1 h-px bg-[#1a1a26]"/>
+          <div className="flex-1 h-px" style={{ backgroundColor: "var(--color-border)" }}/>
+          <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>or continue with</span>
+          <div className="flex-1 h-px" style={{ backgroundColor: "var(--color-border)" }}/>
         </div>
 
         {/* Google */}
-        <button type="button" onClick={handleGoogleSignIn} disabled={isSubmitting}
-          className="w-full py-4 px-4 mb-3 rounded-2xl bg-[#0e0e16] hover:bg-[#14141e] border border-[#222230] hover:border-[#333345] flex items-center justify-center gap-3 text-sm font-semibold text-white transition cursor-pointer">
+        <button
+          type="button"
+          onClick={handleGoogleSignIn}
+          disabled={isSubmitting}
+          className="w-full py-4 px-4 mb-3 flex items-center justify-center gap-3 text-sm font-semibold transition cursor-pointer border"
+          style={{
+            backgroundColor: "var(--color-surface)",
+            borderColor: "var(--color-border)",
+            borderRadius: "var(--radius-xl)",
+            color: "var(--color-text)",
+          }}
+          onMouseEnter={(e) => {
+            (e.currentTarget as HTMLElement).style.backgroundColor = "var(--color-elevated)";
+            (e.currentTarget as HTMLElement).style.borderColor = "rgba(255,255,255,0.15)";
+          }}
+          onMouseLeave={(e) => {
+            (e.currentTarget as HTMLElement).style.backgroundColor = "var(--color-surface)";
+            (e.currentTarget as HTMLElement).style.borderColor = "var(--color-border)";
+          }}
+        >
           <svg className="w-5 h-5 flex-shrink-0" viewBox="0 0 24 24">
             <path fill="#4285F4" d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.665-5.17 3.665-9.17z"/>
             <path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.25v3.15C3.26 21.36 7.34 24 12 24z"/>
@@ -265,41 +389,100 @@ export const AuthLanding: React.FC<AuthLandingProps> = ({ onAuthenticate }) => {
         </button>
 
         {/* Apple */}
-        <button type="button" onClick={() => handleSocial("Apple")}
-          className="w-full py-4 px-4 mb-5 rounded-2xl bg-[#0e0e16] hover:bg-[#14141e] border border-[#222230] hover:border-[#333345] flex items-center justify-center gap-3 text-sm font-semibold text-white transition cursor-pointer">
+        <button
+          type="button"
+          onClick={() => handleSocial("Apple")}
+          className="w-full py-4 px-4 mb-5 flex items-center justify-center gap-3 text-sm font-semibold transition cursor-pointer border"
+          style={{
+            backgroundColor: "var(--color-surface)",
+            borderColor: "var(--color-border)",
+            borderRadius: "var(--radius-xl)",
+            color: "var(--color-text)",
+          }}
+          onMouseEnter={(e) => {
+            (e.currentTarget as HTMLElement).style.backgroundColor = "var(--color-elevated)";
+            (e.currentTarget as HTMLElement).style.borderColor = "rgba(255,255,255,0.15)";
+          }}
+          onMouseLeave={(e) => {
+            (e.currentTarget as HTMLElement).style.backgroundColor = "var(--color-surface)";
+            (e.currentTarget as HTMLElement).style.borderColor = "var(--color-border)";
+          }}
+        >
           <svg className="w-5 h-5 flex-shrink-0" viewBox="0 0 24 24" fill="white">
             <path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/>
           </svg>
           <span>Continue with Apple</span>
         </button>
 
-        <p className="text-center text-xs text-[#444456] mb-3">Other options</p>
+        <p className="text-center text-xs mb-3" style={{ color: "var(--color-text-muted)" }}>
+          Other options
+        </p>
         <div className="grid grid-cols-2 gap-3 mb-6">
-          <button type="button" onClick={() => handleSocial("Phone")}
-            className="py-3.5 px-3 rounded-2xl bg-[#0e0e16] border border-[#222230] hover:border-[#d4af37]/30 flex items-center justify-center gap-2 text-sm font-medium text-white transition cursor-pointer">
-            <Phone className="w-4 h-4 text-[#d4af37]"/><span>Phone Number</span>
+          <button
+            type="button"
+            onClick={() => handleSocial("Phone")}
+            className="py-3.5 px-3 flex items-center justify-center gap-2 text-sm font-medium transition cursor-pointer border"
+            style={{
+              backgroundColor: "var(--color-surface)",
+              borderColor: "var(--color-border)",
+              borderRadius: "var(--radius-xl)",
+              color: "var(--color-text)",
+            }}
+            onMouseEnter={(e) => (e.currentTarget as HTMLElement).style.borderColor = "rgba(212,175,55,0.3)"}
+            onMouseLeave={(e) => (e.currentTarget as HTMLElement).style.borderColor = "var(--color-border)"}
+          >
+            <Phone className="w-4 h-4" style={{ color: "var(--color-gold)" }}/><span>Phone Number</span>
           </button>
-          <button type="button" onClick={() => handleSocial("Biometric")}
-            className="py-3.5 px-3 rounded-2xl bg-[#0e0e16] border border-[#222230] hover:border-[#d4af37]/30 flex items-center justify-center gap-2 text-sm font-medium text-white transition cursor-pointer">
-            <Fingerprint className="w-4 h-4 text-[#d4af37]"/><span>Biometric Login</span>
+          <button
+            type="button"
+            onClick={() => handleSocial("Biometric")}
+            className="py-3.5 px-3 flex items-center justify-center gap-2 text-sm font-medium transition cursor-pointer border"
+            style={{
+              backgroundColor: "var(--color-surface)",
+              borderColor: "var(--color-border)",
+              borderRadius: "var(--radius-xl)",
+              color: "var(--color-text)",
+            }}
+            onMouseEnter={(e) => (e.currentTarget as HTMLElement).style.borderColor = "rgba(212,175,55,0.3)"}
+            onMouseLeave={(e) => (e.currentTarget as HTMLElement).style.borderColor = "var(--color-border)"}
+          >
+            <Fingerprint className="w-4 h-4" style={{ color: "var(--color-gold)" }}/><span>Biometric Login</span>
           </button>
         </div>
 
-        <p className="text-center text-[11px] text-[#3a3a4a] leading-relaxed">
+        <p className="text-center text-[11px] leading-relaxed" style={{ color: "#3a3a4a" }}>
           By continuing, you agree to S&apos;ovo&apos;s{" "}
-          <span className="text-[#c9a830] cursor-pointer hover:text-[#ffd700] transition">Terms of Service</span>
+          <span
+            className="cursor-pointer transition"
+            style={{ color: "var(--color-gold)" }}
+            onMouseEnter={(e) => ((e.target as HTMLElement).style.color = "var(--color-gold-bright)")}
+            onMouseLeave={(e) => ((e.target as HTMLElement).style.color = "var(--color-gold)")}
+          >
+            Terms of Service
+          </span>
           {" "}and{" "}
-          <span className="text-[#c9a830] cursor-pointer hover:text-[#ffd700] transition">Privacy Policy</span>
+          <span
+            className="cursor-pointer transition"
+            style={{ color: "var(--color-gold)" }}
+            onMouseEnter={(e) => ((e.target as HTMLElement).style.color = "var(--color-gold-bright)")}
+            onMouseLeave={(e) => ((e.target as HTMLElement).style.color = "var(--color-gold)")}
+          >
+            Privacy Policy
+          </span>
         </p>
       </motion.div>
 
       {/* E2EE badge */}
-      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.7 }}
-        className="absolute bottom-8 left-1/2 -translate-x-1/2 flex items-center gap-1.5 text-[11px] text-[#555568] z-10">
-        <Lock className="w-3 h-3 text-[#d4af37]"/>
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ delay: 0.7 }}
+        className="absolute bottom-8 left-1/2 -translate-x-1/2 flex items-center gap-1.5 text-[11px] z-10"
+        style={{ color: "var(--color-text-muted)" }}
+      >
+        <Lock className="w-3 h-3" style={{ color: "var(--color-gold)" }}/>
         <span>End-to-end encrypted by default</span>
       </motion.div>
     </div>
   );
 };
-
