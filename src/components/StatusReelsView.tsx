@@ -239,7 +239,7 @@ export const StatusReelsView: React.FC<StatusReelsViewProps> = ({
       id="sovo-tiktok-reels-container"
     >
       {/* Top Header Stories Navigation Avatars Carousel */}
-      <div className="absolute top-2 left-0 right-0 z-30 px-3 py-1 bg-gradient-to-b from-black/80 via-black/40 to-transparent">
+      <div className="absolute top-0 left-0 right-0 z-30 px-3 pb-1 bg-gradient-to-b from-black/80 via-black/40 to-transparent" style={{ paddingTop: 'max(8px, env(safe-area-inset-top))' }}>
         <div className="flex items-center gap-2.5 overflow-x-auto pb-1.5 scrollbar-none">
           {/* Add my status button */}
           <button
@@ -463,7 +463,7 @@ export const StatusReelsView: React.FC<StatusReelsViewProps> = ({
           </div>
 
           {/* Right Action Rail (TikTok Style: Like, Views, Share, 3-Day Tag) */}
-          <div className="absolute right-3.5 bottom-28 z-20 flex flex-col items-center gap-4 pointer-events-auto">
+          <div className="absolute right-3.5 z-20 flex flex-col items-center gap-4 pointer-events-auto" style={{ bottom: 'calc(max(12px, env(safe-area-inset-bottom)) + 80px)' }}>
             {/* Like button */}
             <button
               type="button"
@@ -533,7 +533,7 @@ export const StatusReelsView: React.FC<StatusReelsViewProps> = ({
           </div>
 
           {/* Bottom Caption & Music Tag */}
-          <div className="absolute left-4 right-20 bottom-24 z-20 pointer-events-none">
+          <div className="absolute left-4 right-20 z-20 pointer-events-none" style={{ bottom: 'calc(max(12px, env(safe-area-inset-bottom)) + 64px)' }}>
             <p className="text-sm font-medium text-white drop-shadow-md mb-2 leading-snug">
               {activeItem.caption}
             </p>
@@ -549,7 +549,7 @@ export const StatusReelsView: React.FC<StatusReelsViewProps> = ({
           </div>
 
           {/* Bottom Reply Bar */}
-          <div className="absolute bottom-3 left-3 right-3 z-30 pointer-events-auto">
+          <div className="absolute left-3 right-3 z-30 pointer-events-auto" style={{ bottom: 'max(12px, env(safe-area-inset-bottom))' }}>
             <form
               onSubmit={handleSendReply}
               className="flex items-center gap-2 p-1.5 pl-4 rounded-full bg-[#121217]/90 backdrop-blur-xl border border-[#d4af37]/40 shadow-2xl"
