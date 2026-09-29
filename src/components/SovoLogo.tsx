@@ -38,7 +38,7 @@ export const SovoLogo: React.FC<SovoLogoProps> = ({
           />
         )}
         <img
-          src="/sovo-logo.jpg"
+          src={`${import.meta.env.BASE_URL}sovo-logo.jpg`}
           alt="S'ovo"
           className={`relative z-10 w-full h-full object-contain rounded-xl ${
             animated ? "hover:scale-105 transition-transform duration-300" : ""
