@@ -247,7 +247,8 @@ export const StatusReelsView: React.FC<StatusReelsViewProps> = ({
   return (
     <div
       ref={containerRef}
-      className="relative w-full h-full max-w-md mx-auto bg-black overflow-hidden shadow-2xl select-none"
+      className="relative w-full bg-black overflow-hidden shadow-2xl select-none"
+      style={{ height: '100dvh' }}
       id="sovo-tiktok-reels-container"
     >
       {/* Close button — this view now takes over the entire screen (top app
@@ -394,7 +395,7 @@ export const StatusReelsView: React.FC<StatusReelsViewProps> = ({
               ref={reelVideoRef}
               key={activeItem.id}
               src={activeItem.mediaUrl}
-              className="w-full h-full object-cover"
+              className="w-full h-full object-contain"
               autoPlay
               playsInline
               loop
@@ -405,7 +406,7 @@ export const StatusReelsView: React.FC<StatusReelsViewProps> = ({
             <img
               src={activeItem.mediaUrl}
               alt={activeItem.caption}
-              className="w-full h-full object-cover transform scale-100 transition-transform duration-700"
+              className="w-full h-full object-contain transform scale-100 transition-transform duration-700"
             />
           )}
 
@@ -693,9 +694,9 @@ export const StatusReelsView: React.FC<StatusReelsViewProps> = ({
                   >
                     {newMediaPreviewUrl ? (
                       newMediaFile?.type.startsWith('video/') ? (
-                        <video src={newMediaPreviewUrl} className="w-full h-full object-cover" muted />
+                        <video src={newMediaPreviewUrl} className="w-full h-full object-contain" muted />
                       ) : (
-                        <img src={newMediaPreviewUrl} alt="Selected status" className="w-full h-full object-cover" />
+                        <img src={newMediaPreviewUrl} alt="Selected status" className="w-full h-full object-contain" />
                       )
                     ) : (
                       <div className="flex flex-col items-center gap-1.5" style={{ color: 'var(--color-text-muted)' }}>
