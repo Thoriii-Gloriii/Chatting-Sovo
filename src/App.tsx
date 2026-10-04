@@ -1,6 +1,7 @@
 import { supabase } from './lib/supabase';
 import { ensureProfile } from './lib/authProfile';
 import { uploadFileToStorage } from './lib/upload';
+import { useUIDensity } from './hooks/useUIDensity';
 import React, { useState, useEffect, useRef } from 'react';
 import { Capacitor } from '@capacitor/core';
 import { App as CapacitorApp } from '@capacitor/app';
@@ -71,11 +72,26 @@ const DEFAULT_SETTINGS: UserSettings = {
 };
 
 export default function App() {
+  // Keeps --ui-scale / [data-density] on the document root in sync with
+  // the device's actual resolution/DPI (spacing & sizing only — never
+  // font-size). See src/hooks/useUIDensity.ts.
+  useUIDensity();
+
+  // Keep html[data-theme] in sync with settings.darkMode so CSS tokens
+  // switch instantly across the entire app when the user toggles.
+  const applyTheme = (darkMode: boolean) => {
+    document.documentElement.dataset.theme = darkMode ? 'dark' : 'light';
+  };
+
   // Navigation & App Lifecycle states
   const [appStage, setAppStage] = useState<'splash' | 'auth' | 'main'>('splash');
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [activeTab, setActiveTab] = useState<'chats' | 'statuses' | 'calls' | 'settings'>('chats');
   const [activeConversation, setActiveConversation] = useState<Conversation | null>(null);
+  // Which specific person's story the full-screen status viewer should open
+  // on, when entered by tapping a particular avatar rather than the generic
+  // Statuses tab. Null just opens on the first available story.
+  const [statusViewerUserId, setStatusViewerUserId] = useState<string | null>(null);
 
   // Security & Biometric Lock state
   const [isBiometricLocked, setIsBiometricLocked] = useState(false);
@@ -115,6 +131,19 @@ export default function App() {
   const [syncedContacts, setSyncedContacts] = useState<SyncedContact[]>([]);
   const [linkedDevices, setLinkedDevices] = useState<LinkedDevice[]>([]);
   const [callsList, setCallsList] = useState<CallRecord[]>([]);
+
+  // Direct-chat header identity fix: a 1:1 conversation's stored `name`/
+  // `avatar` fields used to be whichever contact-list name the creator
+  // happened to have saved, baked in once at creation time — so the other
+  // participant would see themselves mislabeled (or worse, "S'ovo User")
+  // in their own conversation header. Instead we resolve each direct
+  // conversation's displayed name/avatar live, per-viewer, from the OTHER
+  // member's real profile — so both phones always show the correspondent's
+  // actual name, never the viewer's own or a stale cached one.
+  const [memberProfiles, setMemberProfiles] = useState<
+    Record<string, { displayName: string; avatarUrl: string }>
+  >({});
+  const fetchedProfileIds = useRef<Set<string>>(new Set());
 
   // Check saved session on load, and react to sign-in/sign-out afterward.
   useEffect(() => {
@@ -156,6 +185,11 @@ export default function App() {
   useEffect(() => {
     sound.setEnabled(settings.soundEffects);
   }, [settings.soundEffects]);
+
+  // Apply dark/light theme to html element whenever darkMode setting changes.
+  useEffect(() => {
+    applyTheme(settings.darkMode);
+  }, [settings.darkMode]);
 
   /**
    * Publish this device's real E2EE public key.
@@ -300,6 +334,94 @@ export default function App() {
       supabase.removeChannel(channel);
     };
   }, [currentUser]);
+
+  // Resolve the real display name/avatar of the OTHER person in each direct
+  // conversation, live. Fetch any member profiles we don't have cached yet,
+  // then keep them fresh via realtime so a name/avatar change on either
+  // phone shows up on both without needing to reopen the chat.
+  useEffect(() => {
+    if (!currentUser) return;
+
+    const otherMemberIds = new Set<string>();
+    conversations.forEach((c) => {
+      if (c.type !== 'direct') return;
+      const otherId = c.members.find((m) => m !== currentUser.id);
+      if (otherId) otherMemberIds.add(otherId);
+    });
+    if (otherMemberIds.size === 0) return;
+
+    const idsToFetch = Array.from(otherMemberIds).filter(
+      (id) => !fetchedProfileIds.current.has(id)
+    );
+    if (idsToFetch.length === 0) return;
+    idsToFetch.forEach((id) => fetchedProfileIds.current.add(id));
+
+    supabase
+      .from('profiles')
+      .select('id, displayName, avatarUrl')
+      .in('id', idsToFetch)
+      .then(({ data, error }) => {
+        if (error) {
+          console.error('Failed to load conversation partner profiles', error);
+          // Allow a retry on the next pass instead of caching the failure.
+          idsToFetch.forEach((id) => fetchedProfileIds.current.delete(id));
+          return;
+        }
+        if (!data || data.length === 0) return;
+        setMemberProfiles((prev) => {
+          const next = { ...prev };
+          for (const row of data as { id: string; displayName: string; avatarUrl: string }[]) {
+            next[row.id] = { displayName: row.displayName, avatarUrl: row.avatarUrl };
+          }
+          return next;
+        });
+      });
+  }, [conversations, currentUser]);
+
+  // Live-update a conversation partner's name/avatar if they change it —
+  // e.g. so it updates on the other person's screen without a refresh.
+  useEffect(() => {
+    if (!currentUser) return;
+    const watchedIds = new Set<string>();
+    conversations.forEach((c) => {
+      if (c.type !== 'direct') return;
+      const otherId = c.members.find((m) => m !== currentUser.id);
+      if (otherId) watchedIds.add(otherId);
+    });
+    if (watchedIds.size === 0) return;
+
+    const channel = supabase
+      .channel(`partner-profiles-${currentUser.id}`)
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'profiles' },
+        (payload) => {
+          const row = payload.new as { id: string; displayName: string; avatarUrl: string };
+          if (!row?.id || !watchedIds.has(row.id)) return;
+          setMemberProfiles((prev) => ({
+            ...prev,
+            [row.id]: { displayName: row.displayName, avatarUrl: row.avatarUrl },
+          }));
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [conversations, currentUser]);
+
+  // A direct conversation's true display name/avatar is always the OTHER
+  // member's live profile — never the raw DB row, which only reflects
+  // whichever contact name the conversation's creator happened to save.
+  // Group conversations are unaffected (their name is the group's own).
+  const resolveConversationDisplay = (conv: Conversation): Conversation => {
+    if (conv.type !== 'direct' || !currentUser) return conv;
+    const otherId = conv.members.find((m) => m !== currentUser.id);
+    const profile = otherId ? memberProfiles[otherId] : undefined;
+    if (!profile) return conv;
+    return { ...conv, name: profile.displayName, avatar: profile.avatarUrl || conv.avatar };
+  };
 
   // Real user directory: every other registered account, used to power "Discover"
   // and @username search instead of a fake local contact-sync simulation.
@@ -789,9 +911,10 @@ export default function App() {
 
   const handleOpenE2EEFromChat = () => {
     if (activeConversation) {
+      const display = resolveConversationDisplay(activeConversation);
       setE2EEPeerInfo({
         id: activeConversation.id,
-        name: activeConversation.name,
+        name: display.name,
         username: activeConversation.username,
         keyFingerprint: activeConversation.e2eeKeyFingerprint,
       });
@@ -970,6 +1093,15 @@ export default function App() {
   useEffect(() => {
     if (!Capacitor.isNativePlatform()) return;
 
+    let exitToast: HTMLDivElement | null = null;
+    let exitTimer: ReturnType<typeof setTimeout> | null = null;
+    const clearExitToast = () => {
+      if (exitTimer) clearTimeout(exitTimer);
+      exitTimer = null;
+      exitToast?.remove();
+      exitToast = null;
+    };
+
     const listenerPromise = CapacitorApp.addListener('backButton', () => {
       sound.playTap();
 
@@ -1002,12 +1134,27 @@ export default function App() {
         return;
       }
 
-      // Already at the root screen — this is the one case where the
-      // hardware back button should behave like normal Android and exit.
-      CapacitorApp.exitApp();
+      // Already at the root screen: double-back-to-exit (kept from the
+      // earlier handler on main). First press shows a hint, a second press
+      // within 2s exits.
+      if (exitToast) {
+        CapacitorApp.exitApp();
+        return;
+      }
+      exitToast = document.createElement('div');
+      exitToast.textContent = 'Press back again to exit';
+      exitToast.style.cssText = [
+        'position:fixed', 'bottom:80px', 'left:50%', 'transform:translateX(-50%)',
+        'background:rgba(0,0,0,0.75)', 'color:#fff', 'padding:10px 20px',
+        'border-radius:20px', 'font-size:13px', 'z-index:99999',
+        'pointer-events:none', 'white-space:nowrap',
+      ].join(';');
+      document.body.appendChild(exitToast);
+      exitTimer = setTimeout(clearExitToast, 2000);
     });
 
     return () => {
+      clearExitToast();
       void listenerPromise.then((listener) => listener.remove());
     };
     // Registered once; the handler reads current state via the refs above.
@@ -1128,25 +1275,42 @@ export default function App() {
 
   return (
     <div
-      className="min-h-screen w-full bg-[#030305] text-[#f4f4f6] flex flex-col items-center justify-center p-0 selection:bg-[#d4af37]/30 selection:text-[#f3e5ab]"
+      className="min-h-screen w-full flex flex-col items-center justify-center p-0 selection:bg-[#d4af37]/30 selection:text-[#f3e5ab]"
       id="sovo-app-root"
-      style={{ zoom: '0.95' }}
+      style={{ backgroundColor: 'var(--color-bg)', color: 'var(--color-text)' }}
     >
       {/* Full-screen app container */}
       <div
-        className="w-full overflow-hidden flex flex-col bg-[#07070b] min-h-screen relative"
+        className="w-full overflow-hidden flex flex-col min-h-screen relative"
         id="android-device-chassis"
+        style={{ backgroundColor: 'var(--color-surface)' }}
       >
 
-        {/* Material 3 Top App Bar */}
-        <header className="h-15 px-4 bg-[#09090e]/95 backdrop-blur-md border-b border-[#1c1b24] flex items-center justify-between sticky top-0 z-40">
+        {/* Material 3 Top App Bar — hidden while a status is open full-screen,
+            so nothing but the story content is visible (Instagram/Snapchat-
+            style immersive viewer). */}
+        {activeTab !== 'statuses' && (
+        <header className="px-4 backdrop-blur-md flex items-center justify-between sticky top-0 z-40"
+          style={{
+            backgroundColor: 'var(--color-header)',
+            borderBottom: '1px solid var(--color-border)',
+            paddingTop: 'max(16px, env(safe-area-inset-top))',
+            paddingBottom: '12px',
+          }}
+        >
           <div className="flex items-center gap-2.5">
             <SovoLogo size="sm" showText={true} withGlow={true} />
           </div>
 
           {/* Android Knox Security Pill */}
-          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#13120d] border border-[#d4af37]/35 text-[10px] font-semibold text-[#ffd700]">
-            <Lock className="w-2.5 h-2.5 text-[#ffd700]" />
+          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-semibold"
+            style={{
+              backgroundColor: 'var(--color-gold-dim)',
+              border: '1px solid var(--color-gold-border)',
+              color: 'var(--color-gold-bright)',
+            }}
+          >
+            <Lock className="w-2.5 h-2.5" style={{ color: 'var(--color-gold-bright)' }} />
             <span>Knox E2EE</span>
           </div>
 
@@ -1158,7 +1322,12 @@ export default function App() {
                 sound.playTap();
                 setIsBiometricLocked(true);
               }}
-              className="p-2 rounded-xl bg-[#12121a] hover:bg-[#1c1b28] border border-[#232230] text-[#ffd700] hover:border-[#d4af37]/60 transition cursor-pointer"
+              className="p-2 rounded-xl transition cursor-pointer"
+              style={{
+                backgroundColor: 'var(--color-elevated)',
+                border: '1px solid var(--color-border)',
+                color: 'var(--color-gold-bright)',
+              }}
               title="Lock S'ovo with Android Biometrics"
             >
               <Fingerprint className="w-4 h-4" />
@@ -1171,17 +1340,19 @@ export default function App() {
                 sound.playTap();
                 setActiveTab('settings');
               }}
-              className="w-8 h-8 rounded-full object-cover border border-[#d4af37]/60 cursor-pointer hover:scale-105 transition"
+              className="w-8 h-8 rounded-full object-cover cursor-pointer hover:scale-105 transition"
+              style={{ border: '1px solid var(--color-gold-border)' }}
             />
           </div>
         </header>
+        )}
 
         {/* Main Content Area */}
         <main className="flex-1 flex flex-col relative overflow-hidden">
           {/* Active Chat Conversation Room or Tab View */}
           {activeConversation ? (
             <ChatRoom
-              conversation={activeConversation}
+              conversation={resolveConversationDisplay(activeConversation)}
               messages={messagesMap[activeConversation.id] || []}
               currentUser={currentUser}
               settings={settings}
@@ -1195,7 +1366,7 @@ export default function App() {
                   setCallError('Group calls are not supported yet — open a direct chat to call.');
                   return;
                 }
-                void handleStartCall(peerId, activeConversation.name, type);
+                void handleStartCall(peerId, resolveConversationDisplay(activeConversation).name, type);
               }}
               onToggleReaction={handleToggleReaction}
             />
@@ -1204,14 +1375,17 @@ export default function App() {
               {/* Tab 1: Chats (Default Dashboard) */}
               {activeTab === 'chats' && (
                 <ChatsView
-                  conversations={conversations}
+                  conversations={conversations.map(resolveConversationDisplay)}
                   statusStories={statusStories}
                   currentUser={currentUser}
                   settings={settings}
                   onSelectConversation={(conv) => setActiveConversation(conv)}
                   onOpenNewGroup={() => setShowGroupCreateModal(true)}
                   onOpenSyncContacts={() => setShowSyncContactsModal(true)}
-                  onOpenReelsView={() => setActiveTab('statuses')}
+                  onOpenReelsView={(userId) => {
+                    setStatusViewerUserId(userId ?? null);
+                    setActiveTab('statuses');
+                  }}
                 />
               )}
 
@@ -1223,6 +1397,11 @@ export default function App() {
                   onSendStatusReply={handleSendStatusReply}
                   onAddStatus={handleAddStatus}
                   onToggleLike={handleToggleStatusLike}
+                  initialUserId={statusViewerUserId ?? undefined}
+                  onClose={() => {
+                    setStatusViewerUserId(null);
+                    setActiveTab('chats');
+                  }}
                 />
               )}
 
@@ -1288,29 +1467,31 @@ export default function App() {
           )}
         </main>
 
-        {/* Material 3 Android Bottom Navigation Bar (Visible when not in active chat room) */}
-        {!activeConversation && (
+        {/* Material 3 Android Bottom Navigation Bar (Visible when not in active
+            chat room, and hidden during the full-screen status viewer) */}
+        {!activeConversation && activeTab !== 'statuses' && (
           <nav
-            className="h-16 px-1 bg-[#08080d] border-t border-[#1a1928] flex items-center justify-around z-30 shadow-2xl"
+            className="px-1 flex items-center justify-around z-30 shadow-2xl"
+            style={{
+              backgroundColor: 'var(--color-header)',
+              borderTop: '1px solid var(--color-border)',
+              paddingTop: '8px',
+              paddingBottom: 'max(8px, env(safe-area-inset-bottom))',
+            }}
             id="android-m3-navigation-bar"
           >
             {/* Chats Tab */}
             <button
               type="button"
-              onClick={() => {
-                sound.playTap();
-                setActiveTab('chats');
-              }}
-              className="flex flex-col items-center gap-0.5 transition cursor-pointer flex-1 py-2"
+              onClick={() => { sound.playTap(); setActiveTab('chats'); }}
+              className="flex flex-col items-center gap-0.5 transition cursor-pointer flex-1 py-2 nav-tap-target"
             >
-              <div
-                className={`w-12 h-6 rounded-full transition-all duration-200 flex items-center justify-center ${
-                  activeTab === 'chats' ? 'text-[#ffd700]' : 'text-gray-500'
-                }`}
-              >
+              <div className="w-12 h-6 rounded-full transition-all duration-200 flex items-center justify-center"
+                style={{ color: activeTab === 'chats' ? 'var(--color-gold-bright)' : 'var(--color-text-muted)' }}>
                 <MessageSquare className="w-5 h-5 stroke-[1.8]" />
               </div>
-              <span className={`text-[10px] font-medium ${activeTab === 'chats' ? 'text-[#ffd700]' : 'text-gray-500'}`}>
+              <span className="text-[10px] font-medium"
+                style={{ color: activeTab === 'chats' ? 'var(--color-gold-bright)' : 'var(--color-text-muted)' }}>
                 Chats
               </span>
             </button>
@@ -1318,20 +1499,15 @@ export default function App() {
             {/* Calls Tab */}
             <button
               type="button"
-              onClick={() => {
-                sound.playTap();
-                setActiveTab('calls');
-              }}
-              className="flex flex-col items-center gap-0.5 transition cursor-pointer flex-1 py-2"
+              onClick={() => { sound.playTap(); setActiveTab('calls'); }}
+              className="flex flex-col items-center gap-0.5 transition cursor-pointer flex-1 py-2 nav-tap-target"
             >
-              <div
-                className={`w-12 h-6 rounded-full transition-all duration-200 flex items-center justify-center ${
-                  activeTab === 'calls' ? 'text-[#ffd700]' : 'text-gray-500'
-                }`}
-              >
+              <div className="w-12 h-6 rounded-full transition-all duration-200 flex items-center justify-center"
+                style={{ color: activeTab === 'calls' ? 'var(--color-gold-bright)' : 'var(--color-text-muted)' }}>
                 <Phone className="w-5 h-5 stroke-[1.8]" />
               </div>
-              <span className={`text-[10px] font-medium ${activeTab === 'calls' ? 'text-[#ffd700]' : 'text-gray-500'}`}>
+              <span className="text-[10px] font-medium"
+                style={{ color: activeTab === 'calls' ? 'var(--color-gold-bright)' : 'var(--color-text-muted)' }}>
                 Calls
               </span>
             </button>
@@ -1339,20 +1515,15 @@ export default function App() {
             {/* Status Tab */}
             <button
               type="button"
-              onClick={() => {
-                sound.playTap();
-                setActiveTab('statuses');
-              }}
-              className="flex flex-col items-center gap-0.5 transition cursor-pointer flex-1 py-2"
+              onClick={() => { sound.playTap(); setStatusViewerUserId(null); setActiveTab('statuses'); }}
+              className="flex flex-col items-center gap-0.5 transition cursor-pointer flex-1 py-2 nav-tap-target"
             >
-              <div
-                className={`w-12 h-6 rounded-full transition-all duration-200 flex items-center justify-center ${
-                  activeTab === 'statuses' ? 'text-[#ffd700]' : 'text-gray-500'
-                }`}
-              >
+              <div className="w-12 h-6 rounded-full transition-all duration-200 flex items-center justify-center"
+                style={{ color: activeTab === 'statuses' ? 'var(--color-gold-bright)' : 'var(--color-text-muted)' }}>
                 <PlaySquare className="w-5 h-5 stroke-[1.8]" />
               </div>
-              <span className={`text-[10px] font-medium ${activeTab === 'statuses' ? 'text-[#ffd700]' : 'text-gray-500'}`}>
+              <span className="text-[10px] font-medium"
+                style={{ color: activeTab === 'statuses' ? 'var(--color-gold-bright)' : 'var(--color-text-muted)' }}>
                 Status
               </span>
             </button>
@@ -1360,42 +1531,38 @@ export default function App() {
             {/* Groups Tab */}
             <button
               type="button"
-              onClick={() => {
-                sound.playTap();
-                setShowGroupCreateModal(true);
-              }}
-              className="flex flex-col items-center gap-0.5 transition cursor-pointer flex-1 py-2"
+              onClick={() => { sound.playTap(); setShowGroupCreateModal(true); }}
+              className="flex flex-col items-center gap-0.5 transition cursor-pointer flex-1 py-2 nav-tap-target"
             >
-              <div className="w-12 h-6 rounded-full flex items-center justify-center text-gray-500">
+              <div className="w-12 h-6 rounded-full flex items-center justify-center"
+                style={{ color: 'var(--color-text-muted)' }}>
                 <Users className="w-5 h-5 stroke-[1.8]" />
               </div>
-              <span className="text-[10px] font-medium text-gray-500">Groups</span>
+              <span className="text-[10px] font-medium" style={{ color: 'var(--color-text-muted)' }}>Groups</span>
             </button>
 
             {/* Settings Tab */}
             <button
               type="button"
-              onClick={() => {
-                sound.playTap();
-                setActiveTab('settings');
-              }}
-              className="flex flex-col items-center gap-0.5 transition cursor-pointer flex-1 py-2"
+              onClick={() => { sound.playTap(); setActiveTab('settings'); }}
+              className="flex flex-col items-center gap-0.5 transition cursor-pointer flex-1 py-2 nav-tap-target"
             >
-              <div
-                className={`w-12 h-6 rounded-full transition-all duration-200 flex items-center justify-center ${
-                  activeTab === 'settings' ? 'text-[#ffd700]' : 'text-gray-500'
-                }`}
-              >
+              <div className="w-12 h-6 rounded-full transition-all duration-200 flex items-center justify-center"
+                style={{ color: activeTab === 'settings' ? 'var(--color-gold-bright)' : 'var(--color-text-muted)' }}>
                 <SettingsIcon className="w-5 h-5 stroke-[1.8]" />
               </div>
-              <span className={`text-[10px] font-medium ${activeTab === 'settings' ? 'text-[#ffd700]' : 'text-gray-500'}`}>
+              <span className="text-[10px] font-medium"
+                style={{ color: activeTab === 'settings' ? 'var(--color-gold-bright)' : 'var(--color-text-muted)' }}>
                 Settings
               </span>
             </button>
           </nav>
         )}
 
-        {/* Android System Navigation Gesture Bar at bottom */}
+        {/* Android System Navigation Gesture Bar at bottom — hidden during
+            the full-screen status viewer for a true edge-to-edge immersive
+            view; the viewer has its own close (X) button instead. */}
+        {activeTab !== 'statuses' && (
         <AndroidNavigationBar
           onBack={handleAndroidBack}
           onHome={() => {
@@ -1407,6 +1574,7 @@ export default function App() {
             sound.playTap();
           }}
         />
+        )}
       </div>
 
       {/* Biometric Lock Modal Guard */}

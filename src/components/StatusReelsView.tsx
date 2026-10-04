@@ -32,6 +32,12 @@ interface StatusReelsViewProps {
   onSendStatusReply: (contactId: string, replyText: string, statusItem: StatusItem) => void;
   onAddStatus: (file: File, caption: string, durationDays: StoryDuration, privacy: StoryPrivacy) => Promise<void>;
   onToggleLike: (storyUserId: string, itemId: string) => void;
+  /** Story to open directly on (e.g. the user tapped a specific avatar in the
+   *  carousel rather than the generic "Statuses" tab). Falls back to the
+   *  first story when absent or not found. */
+  initialUserId?: string;
+  /** Exit the full-screen story viewer back to the previous screen. */
+  onClose: () => void;
 }
 
 export const StatusReelsView: React.FC<StatusReelsViewProps> = ({
@@ -40,8 +46,14 @@ export const StatusReelsView: React.FC<StatusReelsViewProps> = ({
   onSendStatusReply,
   onAddStatus,
   onToggleLike,
+  initialUserId,
+  onClose,
 }) => {
-  const [currentUserIndex, setCurrentUserIndex] = useState(0);
+  const [currentUserIndex, setCurrentUserIndex] = useState(() => {
+    if (!initialUserId) return 0;
+    const idx = stories.findIndex((s) => s.userId === initialUserId);
+    return idx >= 0 ? idx : 0;
+  });
   const [currentItemIndex, setCurrentItemIndex] = useState(0);
   const [isMuted, setIsMuted] = useState(false);
   const [replyText, setReplyText] = useState('');
@@ -235,11 +247,30 @@ export const StatusReelsView: React.FC<StatusReelsViewProps> = ({
   return (
     <div
       ref={containerRef}
-      className="relative w-full h-[calc(100vh-68px)] md:h-[calc(100vh-80px)] max-w-md mx-auto bg-black rounded-none md:rounded-3xl overflow-hidden shadow-2xl border-0 md:border border-[#2d2b1f] select-none"
+      className="relative w-full bg-black overflow-hidden shadow-2xl select-none"
+      style={{ height: '100dvh' }}
       id="sovo-tiktok-reels-container"
     >
+      {/* Close button — this view now takes over the entire screen (top app
+          bar and bottom nav are hidden while it's open), so it needs its
+          own explicit way back out. */}
+      <button
+        type="button"
+        onClick={() => {
+          sound.playTap();
+          onClose();
+        }}
+        aria-label="Close status"
+        className="absolute z-40 flex items-center justify-center w-9 h-9 rounded-full bg-black/50 backdrop-blur-md border border-white/15 text-white transition"
+        onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.color = 'var(--color-gold-bright)'; }}
+        onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.color = ''; }}
+        style={{ top: 'max(0.5rem, env(safe-area-inset-top))', right: '0.75rem' }}
+      >
+        <X className="w-5 h-5" />
+      </button>
+
       {/* Top Header Stories Navigation Avatars Carousel */}
-      <div className="absolute top-2 left-0 right-0 z-30 px-3 py-1 bg-gradient-to-b from-black/80 via-black/40 to-transparent">
+      <div className="absolute top-0 left-0 right-0 z-30 pl-3 pr-14 pb-1 bg-gradient-to-b from-black/80 via-black/40 to-transparent" style={{ paddingTop: 'max(8px, env(safe-area-inset-top))' }}>
         <div className="flex items-center gap-2.5 overflow-x-auto pb-1.5 scrollbar-none">
           {/* Add my status button */}
           <button
@@ -250,17 +281,17 @@ export const StatusReelsView: React.FC<StatusReelsViewProps> = ({
             }}
             className="flex flex-col items-center flex-shrink-0 cursor-pointer"
           >
-            <div className="relative w-11 h-11 rounded-full p-0.5 border-2 border-dashed border-[#d4af37] flex items-center justify-center bg-[#171510]">
+            <div className="relative w-11 h-11 rounded-full p-0.5 border-2 border-dashed flex items-center justify-center" style={{ borderColor: 'var(--color-gold)', backgroundColor: 'var(--color-elevated)' }}>
               <img
                 src={currentUser.avatarUrl}
                 alt="My profile"
                 className="w-full h-full rounded-full object-cover"
               />
-              <div className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full bg-[#d4af37] text-black flex items-center justify-center text-xs font-bold shadow">
+              <div className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full text-black flex items-center justify-center text-xs font-bold shadow" style={{ backgroundColor: 'var(--color-gold)' }}>
                 <Plus className="w-3 h-3 text-black stroke-[3]" />
               </div>
             </div>
-            <span className="text-[10px] text-[#ffd700] font-medium mt-1">Post Reel</span>
+            <span className="text-[10px] font-medium mt-1" style={{ color: 'var(--color-gold-bright)' }}>Post Reel</span>
           </button>
 
           {/* Contact story avatars */}
@@ -279,14 +310,19 @@ export const StatusReelsView: React.FC<StatusReelsViewProps> = ({
                 }}
                 className="flex flex-col items-center flex-shrink-0 cursor-pointer"
               >
-                <div
+              <div
                   className={`relative w-11 h-11 rounded-full p-0.5 transition-all ${
                     isActive
-                      ? 'ring-2 ring-[#ffd700] ring-offset-2 ring-offset-black scale-105'
-                      : is3DayUser
-                      ? 'border-2 border-[#d4af37]/80'
-                      : 'border-2 border-zinc-600'
+                      ? 'ring-2 ring-offset-2 ring-offset-black scale-105'
+                      : 'border-2'
                   }`}
+                  style={
+                    isActive
+                      ? { outline: '2px solid var(--color-gold-bright)', outlineOffset: '2px' }
+                      : is3DayUser
+                      ? { borderColor: 'var(--color-gold-border)' }
+                      : { borderColor: 'var(--color-border)' }
+                  }
                 >
                   <img
                     src={story.avatarUrl}
@@ -294,15 +330,16 @@ export const StatusReelsView: React.FC<StatusReelsViewProps> = ({
                     className="w-full h-full rounded-full object-cover"
                   />
                   {is3DayUser && (
-                    <div className="absolute -top-1 -right-1 px-1 bg-[#d4af37] text-[8px] font-extrabold text-black rounded-full shadow">
+                    <div className="absolute -top-1 -right-1 px-1 text-[8px] font-extrabold text-black rounded-full shadow" style={{ backgroundColor: 'var(--color-gold)' }}>
                       3D
                     </div>
                   )}
                 </div>
                 <span
                   className={`text-[10px] mt-1 max-w-[54px] truncate ${
-                    isActive ? 'text-[#ffd700] font-semibold' : 'text-gray-400'
+                    isActive ? 'font-semibold' : 'text-gray-400'
                   }`}
+                  style={isActive ? { color: 'var(--color-gold-bright)' } : undefined}
                 >
                   {story.isCurrentUser ? 'You' : story.displayName.split(' ')[0]}
                 </span>
@@ -323,13 +360,14 @@ export const StatusReelsView: React.FC<StatusReelsViewProps> = ({
                   key={item.id}
                   className="h-1 flex-1 bg-white/20 rounded-full overflow-hidden backdrop-blur-sm"
                 >
-                  {isFinished && <div className="h-full w-full bg-[#ffd700]" />}
+                  {isFinished && <div className="h-full w-full" style={{ backgroundColor: 'var(--color-gold-bright)' }} />}
                   {isCurrent && (
                     <motion.div
                       initial={{ width: '0%' }}
                       animate={{ width: isPaused ? '0%' : '100%' }}
                       transition={{ duration: 6.5, ease: 'linear' }}
-                      className="h-full bg-gradient-to-r from-[#d4af37] to-[#fff3a8] rounded-full"
+                      className="h-full rounded-full"
+                      style={{ background: 'linear-gradient(to right, var(--color-gold), #fff3a8)' }}
                     />
                   )}
                 </div>
@@ -357,7 +395,7 @@ export const StatusReelsView: React.FC<StatusReelsViewProps> = ({
               ref={reelVideoRef}
               key={activeItem.id}
               src={activeItem.mediaUrl}
-              className="w-full h-full object-cover"
+              className="w-full h-full object-contain"
               autoPlay
               playsInline
               loop
@@ -368,7 +406,7 @@ export const StatusReelsView: React.FC<StatusReelsViewProps> = ({
             <img
               src={activeItem.mediaUrl}
               alt={activeItem.caption}
-              className="w-full h-full object-cover transform scale-100 transition-transform duration-700"
+              className="w-full h-full object-contain transform scale-100 transition-transform duration-700"
             />
           )}
 
@@ -400,10 +438,10 @@ export const StatusReelsView: React.FC<StatusReelsViewProps> = ({
                 animate={{ scale: 2.2, opacity: 0, y: -120 }}
                 exit={{ opacity: 0 }}
                 transition={{ duration: 0.8, ease: 'easeOut' }}
-                style={{ left: heart.x - 24, top: heart.y - 24 }}
-                className="absolute z-40 pointer-events-none text-[#ffd700]"
+                style={{ left: heart.x - 24, top: heart.y - 24, color: 'var(--color-gold-bright)' }}
+                className="absolute z-40 pointer-events-none"
               >
-                <Heart className="w-12 h-12 fill-[#ffd700] text-[#fff2a3] drop-shadow-[0_0_15px_rgba(255,215,0,0.8)]" />
+                <Heart className="w-12 h-12 drop-shadow-[0_0_15px_rgba(255,215,0,0.8)]" style={{ fill: 'var(--color-gold-bright)', color: '#fff2a3' }} />
               </motion.div>
             ))}
           </AnimatePresence>
@@ -414,34 +452,40 @@ export const StatusReelsView: React.FC<StatusReelsViewProps> = ({
               <img
                 src={activeUserStory.avatarUrl}
                 alt={activeUserStory.displayName}
-                className="w-9 h-9 rounded-full object-cover border border-[#d4af37]/60 shadow"
+                className="w-9 h-9 rounded-full object-cover shadow"
+                style={{ border: '1px solid var(--color-gold-border)' }}
               />
               <div className="flex flex-col">
                 <div className="flex items-center gap-1.5">
                   <span className="text-sm font-semibold text-white drop-shadow">
                     {activeUserStory.displayName}
                   </span>
-                  <span className="text-xs font-mono text-[#d4af37]">
+                  <span className="text-xs font-mono" style={{ color: 'var(--color-gold)' }}>
                     @{activeUserStory.username}
                   </span>
                 </div>
 
                 {/* Expiration and Privacy Badge */}
                 {expirationInfo && (
-                  <div className="flex items-center gap-1.5 text-[11px] text-[#ffd700] font-medium">
+                  <div className="flex items-center gap-1.5 text-[11px] font-medium" style={{ color: 'var(--color-gold-bright)' }}>
                     <span
                       className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold ${
                         expirationInfo.is3Day
-                          ? 'bg-[#d4af37] text-black shadow-sm'
-                          : 'bg-black/60 text-[#ffd700] border border-[#d4af37]/40'
+                          ? 'text-black shadow-sm'
+                          : 'bg-black/60 border'
                       }`}
+                      style={
+                        expirationInfo.is3Day
+                          ? { backgroundColor: 'var(--color-gold)' }
+                          : { color: 'var(--color-gold-bright)', borderColor: 'var(--color-gold-border)' }
+                      }
                     >
                       <Clock className="w-3 h-3" />
                       <span>{expirationInfo.label}</span>
                     </span>
 
                     <span className="text-white/70 text-[10px] flex items-center gap-0.5">
-                      <Lock className="w-2.5 h-2.5 text-[#ffd700]" /> E2EE
+                      <Lock className="w-2.5 h-2.5" style={{ color: 'var(--color-gold-bright)' }} /> E2EE
                     </span>
                   </div>
                 )}
@@ -456,14 +500,16 @@ export const StatusReelsView: React.FC<StatusReelsViewProps> = ({
                 sound.playTap();
                 setIsMuted(!isMuted);
               }}
-              className="p-2 rounded-full bg-black/50 backdrop-blur-md border border-white/15 text-white hover:text-[#ffd700] pointer-events-auto cursor-pointer"
+              className="p-2 rounded-full bg-black/50 backdrop-blur-md border border-white/15 text-white pointer-events-auto cursor-pointer"
+              onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.color = 'var(--color-gold-bright)'; }}
+              onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.color = ''; }}
             >
               {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
             </button>
           </div>
 
           {/* Right Action Rail (TikTok Style: Like, Views, Share, 3-Day Tag) */}
-          <div className="absolute right-3.5 bottom-28 z-20 flex flex-col items-center gap-4 pointer-events-auto">
+          <div className="absolute right-3.5 z-20 flex flex-col items-center gap-4 pointer-events-auto" style={{ bottom: 'calc(max(12px, env(safe-area-inset-bottom)) + 80px)' }}>
             {/* Like button */}
             <button
               type="button"
@@ -477,9 +523,13 @@ export const StatusReelsView: React.FC<StatusReelsViewProps> = ({
               <div
                 className={`p-3 rounded-full backdrop-blur-md transition-all ${
                   activeItem.hasLiked
-                    ? 'bg-[#d4af37] text-black scale-110 shadow-[0_0_12px_#d4af37]'
-                    : 'bg-black/60 text-white border border-white/20 hover:border-[#ffd700]'
+                    ? 'text-black scale-110'
+                    : 'bg-black/60 text-white border border-white/20'
                 }`}
+                style={activeItem.hasLiked ? {
+                  backgroundColor: 'var(--color-gold)',
+                  boxShadow: '0 0 12px var(--color-gold)',
+                } : undefined}
               >
                 <Heart
                   className={`w-6 h-6 ${
@@ -495,7 +545,7 @@ export const StatusReelsView: React.FC<StatusReelsViewProps> = ({
             {/* View Counter */}
             <div className="flex flex-col items-center gap-0.5">
               <div className="p-2.5 rounded-full bg-black/60 backdrop-blur-md border border-white/15 text-gray-300">
-                <Eye className="w-5 h-5 text-[#ffd700]" />
+                <Eye className="w-5 h-5" style={{ color: 'var(--color-gold-bright)' }} />
               </div>
               <span className="text-[10px] font-medium text-gray-300">
                 {activeItem.viewsCount}
@@ -506,12 +556,11 @@ export const StatusReelsView: React.FC<StatusReelsViewProps> = ({
             <div className="flex flex-col gap-1 mt-2">
               <button
                 type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleVerticalScroll('up');
-                }}
+                onClick={(e) => { e.stopPropagation(); handleVerticalScroll('up'); }}
                 disabled={currentUserIndex === 0}
-                className="p-2 rounded-full bg-black/50 text-white disabled:opacity-30 hover:text-[#ffd700] cursor-pointer"
+                className="p-2 rounded-full bg-black/50 text-white disabled:opacity-30 cursor-pointer"
+                onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.color = 'var(--color-gold-bright)'; }}
+                onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.color = ''; }}
                 title="Previous Reel (Swipe Up)"
               >
                 <ChevronUp className="w-4 h-4" />
@@ -519,12 +568,11 @@ export const StatusReelsView: React.FC<StatusReelsViewProps> = ({
 
               <button
                 type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleVerticalScroll('down');
-                }}
+                onClick={(e) => { e.stopPropagation(); handleVerticalScroll('down'); }}
                 disabled={currentUserIndex === stories.length - 1}
-                className="p-2 rounded-full bg-black/50 text-white disabled:opacity-30 hover:text-[#ffd700] cursor-pointer"
+                className="p-2 rounded-full bg-black/50 text-white disabled:opacity-30 cursor-pointer"
+                onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.color = 'var(--color-gold-bright)'; }}
+                onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.color = ''; }}
                 title="Next Reel (Swipe Down)"
               >
                 <ChevronDown className="w-4 h-4" />
@@ -533,13 +581,14 @@ export const StatusReelsView: React.FC<StatusReelsViewProps> = ({
           </div>
 
           {/* Bottom Caption & Music Tag */}
-          <div className="absolute left-4 right-20 bottom-24 z-20 pointer-events-none">
+          <div className="absolute left-4 right-20 z-20 pointer-events-none" style={{ bottom: 'calc(max(12px, env(safe-area-inset-bottom)) + 64px)' }}>
             <p className="text-sm font-medium text-white drop-shadow-md mb-2 leading-snug">
               {activeItem.caption}
             </p>
 
             {activeItem.musicTrack && (
-              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-black/60 backdrop-blur-md border border-[#d4af37]/30 text-xs text-[#ffd700]">
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-black/60 backdrop-blur-md text-xs"
+                style={{ border: '1px solid var(--color-gold-border)', color: 'var(--color-gold-bright)' }}>
                 <Music className="w-3 h-3 animate-spin" />
                 <span className="truncate max-w-[200px] font-mono text-[11px]">
                   {activeItem.musicTrack.title} — {activeItem.musicTrack.artist}
@@ -549,10 +598,11 @@ export const StatusReelsView: React.FC<StatusReelsViewProps> = ({
           </div>
 
           {/* Bottom Reply Bar */}
-          <div className="absolute bottom-3 left-3 right-3 z-30 pointer-events-auto">
+          <div className="absolute left-3 right-3 z-30 pointer-events-auto" style={{ bottom: 'max(12px, env(safe-area-inset-bottom))' }}>
             <form
               onSubmit={handleSendReply}
-              className="flex items-center gap-2 p-1.5 pl-4 rounded-full bg-[#121217]/90 backdrop-blur-xl border border-[#d4af37]/40 shadow-2xl"
+              className="flex items-center gap-2 p-1.5 pl-4 rounded-full backdrop-blur-xl shadow-2xl"
+              style={{ backgroundColor: 'var(--color-surface)', border: '1px solid var(--color-gold-border)' }}
             >
               <input
                 type="text"
@@ -601,11 +651,12 @@ export const StatusReelsView: React.FC<StatusReelsViewProps> = ({
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="w-full max-w-md bg-[#0d0d12] border border-[#d4af37]/40 rounded-3xl p-6 shadow-2xl text-white"
+              className="w-full max-w-md p-6 shadow-2xl text-white rounded-3xl"
+              style={{ backgroundColor: 'var(--color-surface)', border: '1px solid var(--color-gold-border)' }}
             >
-              <div className="flex items-center justify-between mb-4 border-b border-[#24232c] pb-3">
+              <div className="flex items-center justify-between mb-4 pb-3" style={{ borderBottom: '1px solid var(--color-border)' }}>
                 <div className="flex items-center gap-2">
-                  <Sparkles className="w-5 h-5 text-[#ffd700]" />
+                  <Sparkles className="w-5 h-5" style={{ color: 'var(--color-gold-bright)' }} />
                   <h3 className="font-display font-bold text-lg text-gold-glossy">
                     Create S'ovo Status
                   </h3>
@@ -622,7 +673,7 @@ export const StatusReelsView: React.FC<StatusReelsViewProps> = ({
               <form onSubmit={handleCreateStatus} className="space-y-4">
                 {/* Media Selection */}
                 <div>
-                  <label className="block text-xs font-semibold text-gray-300 mb-1.5">
+                  <label className="block text-xs font-semibold mb-1.5" style={{ color: 'var(--color-text-secondary)' }}>
                     Photo or Video
                   </label>
                   <input
@@ -634,29 +685,32 @@ export const StatusReelsView: React.FC<StatusReelsViewProps> = ({
                   />
                   <div
                     onClick={() => statusFileInputRef.current?.click()}
-                    className={`relative h-40 rounded-xl overflow-hidden cursor-pointer border-2 border-dashed transition flex items-center justify-center ${
-                      newMediaPreviewUrl ? 'border-[#ffd700]' : 'border-[#2d2c38] hover:border-[#d4af37]/60'
-                    }`}
+                    className="relative h-40 rounded-xl overflow-hidden cursor-pointer border-2 border-dashed transition flex items-center justify-center"
+                    style={{
+                      borderColor: newMediaPreviewUrl ? 'var(--color-gold-bright)' : 'var(--color-border)',
+                    }}
+                    onMouseEnter={(e) => { if (!newMediaPreviewUrl) (e.currentTarget as HTMLDivElement).style.borderColor = 'var(--color-gold-border)'; }}
+                    onMouseLeave={(e) => { if (!newMediaPreviewUrl) (e.currentTarget as HTMLDivElement).style.borderColor = 'var(--color-border)'; }}
                   >
                     {newMediaPreviewUrl ? (
                       newMediaFile?.type.startsWith('video/') ? (
-                        <video src={newMediaPreviewUrl} className="w-full h-full object-cover" muted />
+                        <video src={newMediaPreviewUrl} className="w-full h-full object-contain" muted />
                       ) : (
-                        <img src={newMediaPreviewUrl} alt="Selected status" className="w-full h-full object-cover" />
+                        <img src={newMediaPreviewUrl} alt="Selected status" className="w-full h-full object-contain" />
                       )
                     ) : (
-                      <div className="flex flex-col items-center gap-1.5 text-gray-500">
+                      <div className="flex flex-col items-center gap-1.5" style={{ color: 'var(--color-text-muted)' }}>
                         <ImageIcon className="w-6 h-6" />
                         <span className="text-[11px]">Tap to choose a photo or video</span>
                       </div>
                     )}
                   </div>
-                  {postError && <p className="text-[11px] text-red-400 mt-1.5">{postError}</p>}
+                  {postError && <p className="text-[11px] mt-1.5" style={{ color: 'var(--color-danger-text)' }}>{postError}</p>}
                 </div>
 
                 {/* Caption input */}
                 <div>
-                  <label className="block text-xs font-semibold text-gray-300 mb-1.5">
+                  <label className="block text-xs font-semibold mb-1.5" style={{ color: 'var(--color-text-secondary)' }}>
                     Status Caption
                   </label>
                   <input
@@ -664,29 +718,36 @@ export const StatusReelsView: React.FC<StatusReelsViewProps> = ({
                     value={newCaption}
                     onChange={(e) => setNewCaption(e.target.value)}
                     placeholder="Add an encrypted note or story caption..."
-                    className="w-full px-4 py-2.5 bg-[#14141c] border border-[#2d2c38] focus:border-[#ffd700] rounded-xl text-xs text-white outline-none"
+                    className="w-full px-4 py-2.5 rounded-xl text-xs text-white outline-none"
+                    style={{
+                      backgroundColor: 'var(--color-elevated)',
+                      border: '1px solid var(--color-border)',
+                    }}
+                    onFocus={(e) => (e.target.style.borderColor = 'var(--color-gold-bright)')}
+                    onBlur={(e) => (e.target.style.borderColor = 'var(--color-border)')}
                   />
                 </div>
 
-                {/* Duration Picker (24h vs 3-Day Retention feature requested) */}
+                {/* Duration Picker */}
                 <div>
-                  <label className="block text-xs font-semibold text-[#ffd700] mb-1.5">
-                    Disappear Duration (S’ovo Feature)
+                  <label className="block text-xs font-semibold mb-1.5" style={{ color: 'var(--color-gold-bright)' }}>
+                    Disappear Duration (S'ovo Feature)
                   </label>
                   <div className="grid grid-cols-2 gap-2">
                     <button
                       type="button"
                       onClick={() => setNewDuration(1)}
-                      className={`p-3 rounded-xl text-left border transition ${
-                        newDuration === 1
-                          ? 'bg-[#1e1c14] border-[#ffd700] text-[#ffd700]'
-                          : 'bg-[#14141c] border-[#2d2c38] text-gray-400'
-                      }`}
+                      className="p-3 rounded-xl text-left border transition"
+                      style={{
+                        backgroundColor: newDuration === 1 ? 'var(--color-gold-dim)' : 'var(--color-elevated)',
+                        borderColor: newDuration === 1 ? 'var(--color-gold-bright)' : 'var(--color-border)',
+                        color: newDuration === 1 ? 'var(--color-gold-bright)' : 'var(--color-text-secondary)',
+                      }}
                     >
                       <p className="text-xs font-bold flex items-center gap-1">
                         <Clock className="w-3.5 h-3.5" /> 24 Hours Standard
                       </p>
-                      <p className="text-[10px] text-gray-400 mt-0.5">
+                      <p className="text-[10px] mt-0.5" style={{ color: 'var(--color-text-muted)' }}>
                         Disappears for all contacts
                       </p>
                     </button>
@@ -694,16 +755,18 @@ export const StatusReelsView: React.FC<StatusReelsViewProps> = ({
                     <button
                       type="button"
                       onClick={() => setNewDuration(3)}
-                      className={`p-3 rounded-xl text-left border transition ${
-                        newDuration === 3
-                          ? 'bg-[#2b2410] border-[#ffd700] text-[#ffd700] shadow-[0_0_10px_rgba(212,175,55,0.2)]'
-                          : 'bg-[#14141c] border-[#2d2c38] text-gray-400'
-                      }`}
+                      className="p-3 rounded-xl text-left border transition"
+                      style={{
+                        backgroundColor: newDuration === 3 ? 'var(--color-gold-dim)' : 'var(--color-elevated)',
+                        borderColor: newDuration === 3 ? 'var(--color-gold-bright)' : 'var(--color-border)',
+                        color: newDuration === 3 ? 'var(--color-gold-bright)' : 'var(--color-text-secondary)',
+                        boxShadow: newDuration === 3 ? '0 0 10px var(--color-gold-glow)' : undefined,
+                      }}
                     >
                       <p className="text-xs font-bold flex items-center gap-1">
-                        <Sparkles className="w-3.5 h-3.5 text-[#ffd700]" /> 3-Day Extended VIP
+                        <Sparkles className="w-3.5 h-3.5" style={{ color: 'var(--color-gold-bright)' }} /> 3-Day Extended VIP
                       </p>
-                      <p className="text-[10px] text-gray-400 mt-0.5">
+                      <p className="text-[10px] mt-0.5" style={{ color: 'var(--color-text-muted)' }}>
                         Retained 72 hours for chosen contacts
                       </p>
                     </button>
@@ -712,7 +775,7 @@ export const StatusReelsView: React.FC<StatusReelsViewProps> = ({
 
                 {/* Privacy Audience */}
                 <div>
-                  <label className="block text-xs font-semibold text-gray-300 mb-1.5">
+                  <label className="block text-xs font-semibold mb-1.5" style={{ color: 'var(--color-text-secondary)' }}>
                     Audience & Visibility
                   </label>
                   <div className="grid grid-cols-3 gap-1.5">
@@ -725,11 +788,12 @@ export const StatusReelsView: React.FC<StatusReelsViewProps> = ({
                         key={opt.key}
                         type="button"
                         onClick={() => setNewPrivacy(opt.key as StoryPrivacy)}
-                        className={`py-2 px-1 text-center rounded-xl text-[11px] font-semibold border transition ${
-                          newPrivacy === opt.key
-                            ? 'bg-[#252014] border-[#d4af37] text-[#ffd700]'
-                            : 'bg-[#14141c] border-[#2a2936] text-gray-400'
-                        }`}
+                        className="py-2 px-1 text-center rounded-xl text-[11px] font-semibold border transition"
+                        style={{
+                          backgroundColor: newPrivacy === opt.key ? 'var(--color-gold-dim)' : 'var(--color-elevated)',
+                          borderColor: newPrivacy === opt.key ? 'var(--color-gold)' : 'var(--color-border)',
+                          color: newPrivacy === opt.key ? 'var(--color-gold-bright)' : 'var(--color-text-secondary)',
+                        }}
                       >
                         {opt.label}
                       </button>

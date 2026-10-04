@@ -1,16 +1,11 @@
 /**
  * InviteButton.tsx
  * Drop this anywhere in your Settings / Profile screen.
- *
- * Usage:
- *   import InviteButton from "./InviteButton";
- *   // inside your Settings JSX:
- *   <InviteButton supabase={supabase} />
  */
-
 import React, { useState } from "react";
 import { getOrCreateInviteCode, shareInviteLink } from "../utils/inviteLink";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { Share2 } from "lucide-react";
 
 interface Props {
   supabase: SupabaseClient<any, any, any>;
@@ -36,21 +31,22 @@ const InviteButton: React.FC<Props> = ({ supabase }) => {
     <button
       onClick={handleShare}
       disabled={loading}
+      className="flex items-center gap-3 w-full transition active:scale-[0.98]"
       style={{
-        display: "flex",
-        alignItems: "center",
-        gap: "10px",
-        width: "100%",
-        padding: "14px 16px",
+        padding: "calc(var(--space-4) * var(--ui-scale)) var(--space-4)",
         background: "none",
         border: "none",
-        color: "inherit",
+        color: "var(--color-text)",
         cursor: loading ? "default" : "pointer",
-        fontSize: "15px",
+        fontSize: "14px",
         opacity: loading ? 0.6 : 1,
+        minHeight: "var(--min-tap-target)",
       }}
     >
-      <span style={{ fontSize: "22px" }}>🔗</span>
+      <Share2
+        className="w-5 h-5 flex-shrink-0"
+        style={{ color: "var(--color-gold)" }}
+      />
       <span>{loading ? "Generating link…" : "Invite someone to chat"}</span>
     </button>
   );

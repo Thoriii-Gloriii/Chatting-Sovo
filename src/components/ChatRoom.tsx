@@ -481,7 +481,8 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
 
   return (
     <div
-      className="flex flex-col h-[calc(100vh-68px)] md:h-[calc(100vh-80px)] w-full max-w-4xl mx-auto bg-[#07070b] border-x border-[#1c1b24] shadow-2xl relative select-none"
+      className="flex flex-col h-[calc(100vh-68px)] md:h-[calc(100vh-80px)] w-full max-w-4xl mx-auto shadow-2xl relative select-none"
+      style={{ backgroundColor: 'var(--color-surface)', borderLeft: '1px solid var(--color-border)', borderRight: '1px solid var(--color-border)' }}
       id="sovo-chat-room"
     >
       {/* Hidden pickers — one per attachment kind so the OS shows the right
@@ -511,15 +512,16 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
       />
 
       {/* Top Navigation Bar */}
-      <header className="h-16 px-4 py-2.5 bg-[#0c0c12]/95 backdrop-blur-md border-b border-[#22212d] flex items-center justify-between z-20">
+      <header className="h-16 px-4 py-2.5 backdrop-blur-md flex items-center justify-between z-20"
+        style={{ backgroundColor: 'var(--color-header)', borderBottom: '1px solid var(--color-border)' }}>
         <div className="flex items-center gap-3">
           <button
             type="button"
-            onClick={() => {
-              sound.playTap();
-              onBack();
-            }}
-            className="p-2 -ml-1 rounded-full text-gray-300 hover:text-white hover:bg-[#1a1924] transition cursor-pointer"
+            onClick={() => { sound.playTap(); onBack(); }}
+            className="p-2 -ml-1 rounded-full transition cursor-pointer"
+            style={{ color: 'var(--color-text-secondary)' }}
+            onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'var(--color-elevated)'; (e.currentTarget as HTMLButtonElement).style.color = 'var(--color-text)'; }}
+            onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = ''; (e.currentTarget as HTMLButtonElement).style.color = 'var(--color-text-secondary)'; }}
           >
             <ArrowLeft className="w-5 h-5" />
           </button>
@@ -532,7 +534,8 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
               <img
                 src={conversation.avatar}
                 alt={conversation.name}
-                className="w-10 h-10 rounded-full object-cover border border-[#d4af37]/40 shadow-sm"
+                className="w-10 h-10 rounded-full object-cover shadow-sm"
+                style={{ border: '1px solid var(--color-gold-border)' }}
               />
               {conversation.type === 'direct' && conversation.isOnline && (
                 <div className="absolute bottom-0 right-0 w-3 h-3 rounded-full bg-emerald-500 border-2 border-black" />
@@ -541,21 +544,24 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
 
             <div className="flex flex-col">
               <div className="flex items-center gap-1.5">
-                <span className="text-sm font-display font-bold text-white group-hover:text-[#ffd700] transition">
+                <span className="text-sm font-display font-bold transition" style={{ color: 'var(--color-text)' }}
+                  onMouseEnter={(e) => { (e.currentTarget as HTMLSpanElement).style.color = 'var(--color-gold-bright)'; }}
+                  onMouseLeave={(e) => { (e.currentTarget as HTMLSpanElement).style.color = 'var(--color-text)'; }}
+                >
                   {conversation.name}
                 </span>
                 {conversation.isEncrypted && (
-                  <ShieldCheck className="w-3.5 h-3.5 text-[#ffd700]" />
+                  <ShieldCheck className="w-3.5 h-3.5" style={{ color: 'var(--color-gold-bright)' }} />
                 )}
               </div>
 
-              <div className="flex items-center gap-1.5 text-[11px] text-gray-400">
+              <div className="flex items-center gap-1.5 text-[11px]" style={{ color: 'var(--color-text-muted)' }}>
                 {conversation.type === 'group' ? (
-                  <span className="text-[#d4af37] font-semibold">
+                  <span className="font-semibold" style={{ color: 'var(--color-gold)' }}>
                     {conversation.memberCount} / {conversation.maxMembers} members
                   </span>
                 ) : conversation.username ? (
-                  <span className="font-mono text-[#ffd700]">@{conversation.username}</span>
+                  <span className="font-mono" style={{ color: 'var(--color-gold-bright)' }}>@{conversation.username}</span>
                 ) : (
                   <span>{conversation.isOnline ? 'Online' : 'Offline'}</span>
                 )}
@@ -568,11 +574,11 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
         <div className="flex items-center gap-1 sm:gap-2">
           <button
             type="button"
-            onClick={() => {
-              sound.playTap();
-              onStartCall('audio');
-            }}
-            className="p-2 rounded-xl text-[#ffd700] bg-[#17150e] hover:bg-[#252014] border border-[#d4af37]/30 transition cursor-pointer"
+            onClick={() => { sound.playTap(); onStartCall('audio'); }}
+            className="p-2 rounded-xl transition cursor-pointer"
+            style={{ color: 'var(--color-gold-bright)', backgroundColor: 'var(--color-gold-dim)', border: '1px solid var(--color-gold-border)' }}
+            onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'var(--color-gold-border)'; }}
+            onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'var(--color-gold-dim)'; }}
             title="Encrypted Voice Call"
           >
             <Phone className="w-4 h-4" />
@@ -580,11 +586,11 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
 
           <button
             type="button"
-            onClick={() => {
-              sound.playTap();
-              onStartCall('video');
-            }}
-            className="p-2 rounded-xl text-[#ffd700] bg-[#17150e] hover:bg-[#252014] border border-[#d4af37]/30 transition cursor-pointer"
+            onClick={() => { sound.playTap(); onStartCall('video'); }}
+            className="p-2 rounded-xl transition cursor-pointer"
+            style={{ color: 'var(--color-gold-bright)', backgroundColor: 'var(--color-gold-dim)', border: '1px solid var(--color-gold-border)' }}
+            onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'var(--color-gold-border)'; }}
+            onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'var(--color-gold-dim)'; }}
             title="Encrypted Video Call"
           >
             <VideoIcon className="w-4 h-4" />
@@ -592,23 +598,23 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
 
           <button
             type="button"
-            onClick={() => {
-              sound.playTap();
-              onOpenE2EEModal();
-            }}
-            className="p-2 rounded-xl text-gray-300 hover:text-[#ffd700] bg-[#12121a] hover:bg-[#1c1b26] border border-[#272635] transition cursor-pointer"
+            onClick={() => { sound.playTap(); onOpenE2EEModal(); }}
+            className="p-2 rounded-xl transition cursor-pointer"
+            style={{ color: 'var(--color-gold)', backgroundColor: 'var(--color-elevated)', border: '1px solid var(--color-border)' }}
+            onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.color = 'var(--color-gold-bright)'; (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'var(--color-gold-dim)'; }}
+            onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.color = 'var(--color-gold)'; (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'var(--color-elevated)'; }}
             title="Inspect E2EE Safety Keys"
           >
-            <Lock className="w-4 h-4 text-[#d4af37]" />
+            <Lock className="w-4 h-4" />
           </button>
 
           <button
             type="button"
-            onClick={() => {
-              sound.playTap();
-              setShowDetailsModal(true);
-            }}
-            className="p-2 rounded-xl text-gray-300 hover:text-white bg-[#12121a] hover:bg-[#1c1b26] border border-[#272635] transition cursor-pointer"
+            onClick={() => { sound.playTap(); setShowDetailsModal(true); }}
+            className="p-2 rounded-xl transition cursor-pointer"
+            style={{ color: 'var(--color-text-secondary)', backgroundColor: 'var(--color-elevated)', border: '1px solid var(--color-border)' }}
+            onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.color = 'var(--color-text)'; (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'var(--color-gold-dim)'; }}
+            onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.color = 'var(--color-text-secondary)'; (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'var(--color-elevated)'; }}
           >
             <MoreVertical className="w-4 h-4" />
           </button>
@@ -616,10 +622,10 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
       </header>
 
       {/* End-to-End Encryption Security Banner */}
-      <div className="py-1.5 px-4 bg-[#12110c] border-b border-[#d4af37]/20 flex items-center justify-center gap-2 text-[11px] text-[#d4af37]">
-        <Lock className="w-3 h-3 text-[#ffd700]" />
+      <div className="py-1.5 px-4 flex items-center justify-center gap-2 text-[11px]" style={{ backgroundColor: 'var(--color-gold-dim)', borderBottom: '1px solid var(--color-gold-border)', color: 'var(--color-gold)' }}>
+        <Lock className="w-3 h-3" style={{ color: 'var(--color-gold-bright)' }} />
         <span>End-to-End Encrypted (S’ovo 4096-bit zero storage). Fingerprint:</span>
-        <span className="font-mono font-bold text-[#fff2a3] text-[10px]">
+        <span className="font-mono font-bold text-[10px]" style={{ color: 'var(--color-gold-bright)' }}>
           {conversation.e2eeKeyFingerprint.slice(0, 16)}...
         </span>
       </div>
@@ -627,7 +633,7 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
       {/* Messages Scroll Area */}
       <div className="flex-1 overflow-y-auto p-4 space-y-3 scrollbar-thin">
         {/* Chat introduction card */}
-        <div className="max-w-xs mx-auto text-center p-3 rounded-2xl bg-[#0e0e15] border border-[#22212d] text-xs text-gray-400">
+        <div className="max-w-xs mx-auto text-center p-3 rounded-2xl text-xs" style={{ backgroundColor: 'var(--color-elevated)', border: '1px solid var(--color-border)', color: 'var(--color-text-muted)' }}>
           <p className="font-semibold text-white mb-1">
             {conversation.type === 'group' ? conversation.name : `Chat with ${conversation.name}`}
           </p>
@@ -648,15 +654,18 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
               className={`flex flex-col ${isMe ? 'items-end' : 'items-start'} group relative`}
             >
               <div
-                className={`max-w-[85%] sm:max-w-[70%] rounded-2xl p-3 shadow-md relative transition-all ${
-                  isMe
-                    ? 'bg-gradient-to-br from-[#282110] via-[#1a170d] to-[#121008] border border-[#d4af37]/40 text-white rounded-br-xs'
-                    : 'bg-[#111118] border border-[#262534] text-gray-100 rounded-bl-xs'
-                }`}
+                className={`max-w-[85%] sm:max-w-[70%] rounded-2xl p-3 shadow-md relative transition-all text-white ${isMe ? 'rounded-br-xs' : 'rounded-bl-xs'}`}
+                style={isMe ? {
+                  backgroundColor: 'var(--color-gold-dim)',
+                  border: '1px solid var(--color-gold-border)',
+                } : {
+                  backgroundColor: 'var(--color-elevated)',
+                  border: '1px solid var(--color-border)',
+                }}
               >
                 {/* Group sender name */}
                 {conversation.type === 'group' && !isMe && (
-                  <p className="text-[11px] font-bold text-[#ffd700] mb-1 font-mono">
+                  <p className="text-[11px] font-bold mb-1 font-mono" style={{ color: 'var(--color-gold-bright)' }}>
                     {msg.senderName}
                   </p>
                 )}
@@ -689,15 +698,15 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
 
                 {/* 2GB Encrypted File Attachment Card */}
                 {(msg.mediaType === 'document' || msg.mediaType === 'encrypted_file') && (
-                  <div className="flex items-center gap-3 p-2.5 rounded-xl bg-[#09090e] border border-[#d4af37]/30 mb-1.5">
-                    <div className="p-2.5 rounded-lg bg-[#1c180e] text-[#ffd700] border border-[#d4af37]/40">
+                  <div className="flex items-center gap-3 p-2.5 rounded-xl mb-1.5" style={{ backgroundColor: 'var(--color-header)', border: '1px solid var(--color-gold-border)' }}>
+                    <div className="p-2.5 rounded-lg" style={{ backgroundColor: 'var(--color-gold-dim)', color: 'var(--color-gold-bright)', border: '1px solid var(--color-gold-border)' }}>
                       <FileText className="w-5 h-5" />
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="text-xs font-semibold text-white truncate">
                         {msg.fileName || 'Encrypted_Payload.bin'}
                       </p>
-                      <p className="text-[10px] text-[#ffd700] font-mono">
+                      <p className="text-[10px] font-mono" style={{ color: 'var(--color-gold-bright)' }}>
                         {msg.fileSize || 'Attachment'} • Encrypted transfer
                       </p>
                     </div>
@@ -711,7 +720,7 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
                       target="_blank"
                       rel="noreferrer"
                       onClick={() => sound.playTap()}
-                      className="p-2 rounded-lg bg-[#191924] hover:bg-[#282738] text-[#d4af37] cursor-pointer transition"
+                      className="p-2 rounded-lg cursor-pointer transition" style={{ backgroundColor: 'var(--color-elevated)', color: 'var(--color-gold)' }}
                       title={`Download ${msg.fileName || 'attachment'}`}
                     >
                       <Download className="w-4 h-4" />
@@ -721,7 +730,7 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
 
                 {/* Voice Note Attachment Player */}
                 {(msg.mediaType === 'voice_note' || msg.mediaType === 'audio') && (
-                  <div className="flex items-center gap-2.5 p-2 rounded-xl bg-[#09090e] border border-[#272635] mb-1.5 min-w-[200px]">
+                  <div className="flex items-center gap-2.5 p-2 rounded-xl mb-1.5 min-w-[200px]" style={{ backgroundColor: 'var(--color-header)', border: '1px solid var(--color-border)' }}>
                     <button
                       type="button"
                       onClick={() => toggleAudioPlay(msg.id, msg.mediaUrl)}
@@ -736,16 +745,19 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
 
                     {/* Animated waveform visualizer bars */}
                     <div className="flex-1 flex items-center gap-0.5 h-6">
-                      {[40, 70, 30, 90, 50, 100, 80, 45, 60, 85, 30, 75, 95, 60, 40].map(
+                    {[40, 70, 30, 90, 50, 100, 80, 45, 60, 85, 30, 75, 95, 60, 40].map(
                         (h, i) => (
                           <div
                             key={i}
                             className={`w-1 rounded-full transition-all ${
-                              playingAudioId === msg.id
-                                ? 'bg-[#ffd700] animate-pulse'
-                                : 'bg-[#3b3a4a]'
+                              playingAudioId === msg.id ? 'animate-pulse' : ''
                             }`}
-                            style={{ height: `${h}%` }}
+                            style={{
+                              height: `${h}%`,
+                              backgroundColor: playingAudioId === msg.id
+                                ? 'var(--color-gold-bright)'
+                                : 'var(--color-border-strong)',
+                            }}
                           />
                         )
                       )}
@@ -784,11 +796,8 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
                       )}
                       {msg.status === 'read' && (
                         <CheckCheck
-                          className={`w-3.5 h-3.5 ${
-                            settings.readReceipts
-                              ? 'text-[#ffd700] drop-shadow-[0_0_4px_#ffd700]'
-                              : 'text-gray-400'
-                          }`}
+                          className="w-3.5 h-3.5"
+                          style={{ color: settings.readReceipts ? 'var(--color-gold-bright)' : 'var(--color-text-muted)' }}
                         />
                       )}
                     </span>
@@ -797,14 +806,15 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
 
                 {/* Reaction badge */}
                 {msg.userReaction && (
-                  <div className="absolute -bottom-2 -right-1 px-1.5 py-0.5 rounded-full bg-[#1c180e] border border-[#d4af37]/60 text-xs shadow-sm">
+                  <div className="absolute -bottom-2 -right-1 px-1.5 py-0.5 rounded-full text-xs shadow-sm"
+                    style={{ backgroundColor: 'var(--color-gold-dim)', border: '1px solid var(--color-gold-border)' }}>
                     {msg.userReaction}
                   </div>
                 )}
               </div>
 
               {/* Hover Quick Reaction Bar */}
-              <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 mt-1 bg-[#12121a] border border-[#272635] px-2 py-0.5 rounded-full">
+              <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 mt-1 px-2 py-0.5 rounded-full" style={{ backgroundColor: 'var(--color-elevated)', border: '1px solid var(--color-border)' }}>
                 {['🔥', '👑', '✨', '💛', '🔒'].map((emoji) => (
                   <button
                     key={emoji}
@@ -825,17 +835,17 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
 
         {/* 2GB Upload Progress Indicator */}
         {uploadProgress !== null && (
-          <div className="max-w-[80%] ml-auto p-3 rounded-2xl bg-[#1a170e] border border-[#ffd700]/50 text-white shadow-lg animate-fadeIn">
+          <div className="max-w-[80%] ml-auto p-3 rounded-2xl text-white shadow-lg animate-fadeIn" style={{ backgroundColor: 'var(--color-gold-dim)', border: '1px solid var(--color-gold-border)' }}>
             <div className="flex items-center justify-between text-xs mb-1.5">
-              <span className="font-semibold text-[#ffd700] flex items-center gap-1.5">
+              <span className="font-semibold flex items-center gap-1.5" style={{ color: 'var(--color-gold-bright)' }}>
                 <Sparkles className="w-3.5 h-3.5" /> Uploading attachment…
               </span>
-              <span className="font-mono text-[#ffd700]">{uploadProgress}%</span>
+              <span className="font-mono" style={{ color: 'var(--color-gold-bright)' }}>{uploadProgress}%</span>
             </div>
             <div className="w-full h-1.5 bg-black/60 rounded-full overflow-hidden">
               <div
-                className="h-full bg-gradient-to-r from-[#d4af37] to-[#fff2a3] transition-all duration-200"
-                style={{ width: `${uploadProgress}%` }}
+                className="h-full transition-all duration-200"
+                style={{ background: 'linear-gradient(to right, var(--color-gold), #fff3a8)', width: `${uploadProgress}%` }}
               />
             </div>
           </div>
@@ -851,14 +861,14 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
             initial={{ opacity: 0, y: 10, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 10, scale: 0.95 }}
-            className="absolute bottom-20 left-4 z-30 p-3 bg-[#0d0d14] border border-[#d4af37]/40 rounded-2xl shadow-2xl grid grid-cols-4 gap-2 w-80 text-white"
+            className="absolute bottom-20 left-4 z-30 p-3 rounded-2xl shadow-2xl grid grid-cols-4 gap-2 w-80 text-white" style={{ backgroundColor: 'var(--color-surface)', border: '1px solid var(--color-gold-border)' }}
           >
             <button
               type="button"
               onClick={() => openPicker(photoInputRef)}
-              className="flex flex-col items-center gap-1.5 p-3 rounded-xl bg-[#14141d] hover:bg-[#1f1e29] border border-[#272635] text-xs font-semibold cursor-pointer"
+              className="flex flex-col items-center gap-1.5 p-3 rounded-xl text-xs font-semibold cursor-pointer transition" style={{ backgroundColor: 'var(--color-elevated)', border: '1px solid var(--color-border)' }}
             >
-              <div className="p-2 rounded-full bg-[#1c180e] text-[#ffd700]">
+              <div className="p-2 rounded-full" style={{ backgroundColor: 'var(--color-gold-dim)', color: 'var(--color-gold-bright)' }}>
                 <ImageIcon className="w-5 h-5" />
               </div>
               <span className="text-[11px]">Photos</span>
@@ -867,9 +877,9 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
             <button
               type="button"
               onClick={() => openPicker(videoInputRef)}
-              className="flex flex-col items-center gap-1.5 p-3 rounded-xl bg-[#14141d] hover:bg-[#1f1e29] border border-[#272635] text-xs font-semibold cursor-pointer"
+              className="flex flex-col items-center gap-1.5 p-3 rounded-xl text-xs font-semibold cursor-pointer transition" style={{ backgroundColor: 'var(--color-elevated)', border: '1px solid var(--color-border)' }}
             >
-              <div className="p-2 rounded-full bg-[#1c180e] text-[#ffd700]">
+              <div className="p-2 rounded-full" style={{ backgroundColor: 'var(--color-gold-dim)', color: 'var(--color-gold-bright)' }}>
                 <Video className="w-5 h-5" />
               </div>
               <span className="text-[11px]">Video</span>
@@ -878,9 +888,9 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
             <button
               type="button"
               onClick={() => openPicker(cameraInputRef)}
-              className="flex flex-col items-center gap-1.5 p-3 rounded-xl bg-[#14141d] hover:bg-[#1f1e29] border border-[#272635] text-xs font-semibold cursor-pointer"
+              className="flex flex-col items-center gap-1.5 p-3 rounded-xl text-xs font-semibold cursor-pointer transition" style={{ backgroundColor: 'var(--color-elevated)', border: '1px solid var(--color-border)' }}
             >
-              <div className="p-2 rounded-full bg-[#1c180e] text-[#ffd700]">
+              <div className="p-2 rounded-full" style={{ backgroundColor: 'var(--color-gold-dim)', color: 'var(--color-gold-bright)' }}>
                 <Camera className="w-5 h-5" />
               </div>
               <span className="text-[11px]">Camera</span>
@@ -889,9 +899,9 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
             <button
               type="button"
               onClick={() => openPicker(fileInputRef)}
-              className="flex flex-col items-center gap-1.5 p-3 rounded-xl bg-[#14141d] hover:bg-[#1f1e29] border border-[#272635] text-xs font-semibold cursor-pointer"
+              className="flex flex-col items-center gap-1.5 p-3 rounded-xl text-xs font-semibold cursor-pointer transition" style={{ backgroundColor: 'var(--color-elevated)', border: '1px solid var(--color-border)' }}
             >
-              <div className="p-2 rounded-full bg-[#1c180e] text-[#ffd700]">
+              <div className="p-2 rounded-full" style={{ backgroundColor: 'var(--color-gold-dim)', color: 'var(--color-gold-bright)' }}>
                 <FileText className="w-5 h-5" />
               </div>
               <span className="text-[11px]">File</span>
@@ -905,7 +915,7 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
       </AnimatePresence>
 
       {/* Bottom Message Input Bar */}
-      <footer className="p-3 bg-[#0c0c12]/95 backdrop-blur-md border-t border-[#22212d] z-20">
+      <footer className="p-3 backdrop-blur-md z-20" style={{ backgroundColor: 'var(--color-header)', borderTop: '1px solid var(--color-border)' }}>
         {/* Attachment / microphone failures used to go to alert() or only the
             console; surface them inline so the cause is visible in the APK. */}
         {attachError && (
@@ -930,7 +940,7 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
                 sound.playTap();
                 setShowAttachMenu(!showAttachMenu);
               }}
-              className="p-2.5 rounded-full bg-[#14141d] hover:bg-[#201f2c] border border-[#272635] text-gray-300 hover:text-[#ffd700] transition cursor-pointer"
+              className="p-2.5 rounded-full transition cursor-pointer" style={{ backgroundColor: 'var(--color-elevated)', border: '1px solid var(--color-border)', color: 'var(--color-text-secondary)' }}
             >
               <Paperclip className="w-4 h-4" />
             </button>
@@ -942,10 +952,10 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
                 value={inputText}
                 onChange={(e) => setInputText(e.target.value)}
                 placeholder="Type an end-to-end encrypted message..."
-                className="w-full pl-4 pr-10 py-3 bg-[#13131b] border border-[#262534] focus:border-[#ffd700] rounded-2xl text-xs sm:text-sm text-white placeholder-gray-500 outline-none transition"
+                className="w-full pl-4 pr-10 py-3 rounded-2xl text-xs sm:text-sm text-white placeholder-gray-500 outline-none transition" style={{ backgroundColor: 'var(--color-elevated)', border: '1px solid var(--color-border)' }}
               />
               <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-gray-400">
-                <Lock className="w-3.5 h-3.5 text-[#d4af37]" />
+                <Lock className="w-3.5 h-3.5" style={{ color: 'var(--color-gold)' }} />
               </span>
             </div>
 
@@ -964,7 +974,7 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
                   sound.resume();
                   void handleStartVoiceRecord();
                 }}
-                className="w-11 h-11 rounded-2xl bg-[#18160e] border border-[#d4af37]/40 text-[#ffd700] hover:bg-[#282214] flex items-center justify-center shadow transition active:scale-95 cursor-pointer"
+                className="w-11 h-11 rounded-2xl flex items-center justify-center shadow transition active:scale-95 cursor-pointer" style={{ backgroundColor: 'var(--color-gold-dim)', border: '1px solid var(--color-gold-border)', color: 'var(--color-gold-bright)' }}
                 title="Record Voice Note"
               >
                 <Mic className="w-4 h-4" />
@@ -973,13 +983,13 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
           </form>
         ) : (
           /* Live Voice Recording Bar */
-          <div className="flex items-center justify-between p-2 rounded-2xl bg-[#1c180e] border border-[#ffd700]/50 text-white animate-fadeIn">
+          <div className="flex items-center justify-between p-2 rounded-2xl text-white animate-fadeIn" style={{ backgroundColor: 'var(--color-gold-dim)', border: '1px solid var(--color-gold-border)' }}>
             <div className="flex items-center gap-3">
               <div className="w-8 h-8 rounded-full bg-red-600 animate-pulse flex items-center justify-center">
                 <Mic className="w-4 h-4 text-white" />
               </div>
               <div>
-                <p className="text-xs font-bold text-[#ffd700]">Recording Voice Message</p>
+                <p className="text-xs font-bold" style={{ color: 'var(--color-gold-bright)' }}>Recording Voice Message</p>
                 <p className="text-[10px] font-mono text-gray-300">
                   {formatAudioDuration(recordSeconds)} • Encrypting audio stream
                 </p>
@@ -1016,9 +1026,9 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="w-full max-w-md bg-[#0c0c12] border border-[#d4af37]/35 rounded-3xl p-6 shadow-2xl text-white"
+              className="w-full max-w-md rounded-3xl p-6 shadow-2xl text-white" style={{ backgroundColor: 'var(--color-surface)', border: '1px solid var(--color-gold-border)' }}
             >
-              <div className="flex items-center justify-between mb-4 pb-3 border-b border-[#20202a]">
+              <div className="flex items-center justify-between mb-4 pb-3" style={{ borderBottom: '1px solid var(--color-border)' }}>
                 <h3 className="font-display font-bold text-lg text-gold-glossy">
                   {conversation.type === 'group' ? 'Group Details' : 'Contact Profile'}
                 </h3>
@@ -1035,11 +1045,11 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
                 <img
                   src={conversation.avatar}
                   alt={conversation.name}
-                  className="w-20 h-20 rounded-full object-cover border-2 border-[#d4af37] mb-2 shadow-lg"
+                  className="w-20 h-20 rounded-full object-cover mb-2 shadow-lg" style={{ border: '2px solid var(--color-gold)' }}
                 />
                 <h4 className="text-base font-bold text-white">{conversation.name}</h4>
                 {conversation.username && (
-                  <p className="text-xs font-mono text-[#ffd700]">@{conversation.username}</p>
+                  <p className="text-xs font-mono" style={{ color: 'var(--color-gold-bright)' }}>@{conversation.username}</p>
                 )}
                 {conversation.groupDescription && (
                   <p className="text-xs text-gray-300 mt-2 max-w-xs leading-relaxed">
@@ -1050,17 +1060,17 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
 
               {/* Group participant badge */}
               {conversation.type === 'group' && (
-                <div className="p-3 rounded-2xl bg-[#12121a] border border-[#272635] mb-4">
+                <div className="p-3 rounded-2xl mb-4" style={{ backgroundColor: 'var(--color-elevated)', border: '1px solid var(--color-border)' }}>
                   <div className="flex items-center justify-between text-xs mb-1 font-semibold">
                     <span className="text-gray-300">Group Capacity</span>
-                    <span className="text-[#ffd700] font-mono">
+                    <span className="font-mono" style={{ color: 'var(--color-gold-bright)' }}>
                       {conversation.memberCount} / 500 Members
                     </span>
                   </div>
-                  <div className="w-full h-1.5 bg-[#1f1e29] rounded-full overflow-hidden">
+                  <div className="w-full h-1.5 rounded-full overflow-hidden" style={{ backgroundColor: 'var(--color-border)' }}>
                     <div
-                      className="h-full bg-[#d4af37]"
-                      style={{ width: `${(conversation.memberCount / 500) * 100}%` }}
+                      className="h-full"
+                      style={{ backgroundColor: 'var(--color-gold)', width: `${(conversation.memberCount / 500) * 100}%` }}
                     />
                   </div>
                 </div>
@@ -1073,7 +1083,7 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
                   setShowDetailsModal(false);
                   onOpenE2EEModal();
                 }}
-                className="w-full py-3 rounded-xl bg-[#17150e] border border-[#d4af37]/40 text-[#ffd700] text-xs font-bold flex items-center justify-center gap-2 hover:bg-[#252014] transition cursor-pointer"
+                className="w-full py-3 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition cursor-pointer" style={{ backgroundColor: 'var(--color-gold-dim)', border: '1px solid var(--color-gold-border)', color: 'var(--color-gold-bright)' }}
               >
                 <ShieldCheck className="w-4 h-4" />
                 <span>Verify 4096-bit Security Safety Numbers</span>
