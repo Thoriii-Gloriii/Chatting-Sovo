@@ -3,6 +3,8 @@ import { ensureProfile } from './lib/authProfile';
 import { uploadFileToStorage } from './lib/upload';
 import { useUIDensity } from './hooks/useUIDensity';
 import React, { useState, useEffect, useRef } from 'react';
+import { Capacitor } from '@capacitor/core';
+import { App as CapacitorApp } from '@capacitor/app';
 import {
   User,
   Conversation,
@@ -188,75 +190,6 @@ export default function App() {
   useEffect(() => {
     applyTheme(settings.darkMode);
   }, [settings.darkMode]);
-
-  // Android hardware back button handling.
-  // Capacitor fires a native 'backbutton' event on document so we can intercept it.
-  useEffect(() => {
-    // Only wire up on Android Capacitor builds — not needed on web.
-    const isCapacitorAndroid =
-      typeof (window as any).Capacitor !== 'undefined' &&
-      (window as any).Capacitor.getPlatform?.() === 'android';
-
-    if (!isCapacitorAndroid) return;
-
-    let backPressedOnce = false;
-    let toastTimer: ReturnType<typeof setTimeout> | null = null;
-
-    const handler = (e: Event) => {
-      e.preventDefault(); // stops default exit behaviour
-
-      // 1. Dismiss any open modals first (biometric, E2EE, sync, etc.)
-      if (showE2EEModal) { setShowE2EEModal(false); return; }
-      if (showSyncContactsModal) { setShowSyncContactsModal(false); return; }
-      if (showGroupCreateModal) { setShowGroupCreateModal(false); return; }
-
-      // 2. Close an active conversation → back to chats list
-      if (activeConversation) {
-        setActiveConversation(null);
-        setActiveTab('chats');
-        return;
-      }
-
-      // 3. On a non-chats tab → jump to chats
-      if (activeTab !== 'chats') {
-        setActiveTab('chats');
-        return;
-      }
-
-      // 4. Already on chats home — double-back-to-exit
-      if (backPressedOnce) {
-        // Let the OS close the app naturally by not calling preventDefault
-        // on the next press — achieved by removing this handler temporarily.
-        document.removeEventListener('backbutton', handler);
-        (window as any).history.go(-1); // triggers real back → app minimises
-        return;
-      }
-
-      backPressedOnce = true;
-      // Show a toast using Android's native toast via a quick DOM message
-      const toast = document.createElement('div');
-      toast.textContent = "Press back again to exit";
-      toast.style.cssText = [
-        'position:fixed', 'bottom:80px', 'left:50%', 'transform:translateX(-50%)',
-        'background:rgba(0,0,0,0.75)', 'color:#fff', 'padding:10px 20px',
-        'border-radius:20px', 'font-size:13px', 'z-index:99999',
-        'pointer-events:none', 'backdrop-filter:blur(4px)',
-        'white-space:nowrap',
-      ].join(';');
-      document.body.appendChild(toast);
-
-      toastTimer = setTimeout(() => {
-        backPressedOnce = false;
-        toast.remove();
-      }, 2000);
-    };
-
-    document.addEventListener('backbutton', handler);
-    return () => {
-      document.removeEventListener('backbutton', handler);
-      if (toastTimer) clearTimeout(toastTimer);
-    };
-  }, [activeConversation, activeTab, showE2EEModal, showSyncContactsModal, showGroupCreateModal]);
 
   /**
    * Publish this device's real E2EE public key.
@@ -1123,6 +1056,110 @@ export default function App() {
   useEffect(() => {
     incomingInviteRef.current = incomingInvite;
   }, [incomingInvite]);
+
+  // More refs so the hardware back-button handler below always sees current
+  // navigation state without needing to resubscribe the native listener.
+  const activeConversationRef = useRef(activeConversation);
+  const activeTabRef = useRef(activeTab);
+  const showE2EEModalRef = useRef(showE2EEModal);
+  const showSyncContactsModalRef = useRef(showSyncContactsModal);
+  const showGroupCreateModalRef = useRef(showGroupCreateModal);
+  useEffect(() => {
+    activeConversationRef.current = activeConversation;
+  }, [activeConversation]);
+  useEffect(() => {
+    activeTabRef.current = activeTab;
+  }, [activeTab]);
+  useEffect(() => {
+    showE2EEModalRef.current = showE2EEModal;
+  }, [showE2EEModal]);
+  useEffect(() => {
+    showSyncContactsModalRef.current = showSyncContactsModal;
+  }, [showSyncContactsModal]);
+  useEffect(() => {
+    showGroupCreateModalRef.current = showGroupCreateModal;
+  }, [showGroupCreateModal]);
+
+  // Hardware Android back button. Capacitor's BridgeActivity has no history
+  // to pop for this app (it's client-state navigation, not routed), so left
+  // unhandled the OS default is to finish() the Activity on every press —
+  // the app closes instead of navigating back a step. This listener steps
+  // the in-app state back one level per press, and only lets the real
+  // back button close the app once the user is already at the root
+  // (chats tab, no open conversation, no modal, no active call). It only
+  // fires on native Android via @capacitor/app, so the web/GitHub Pages
+  // build (which never gets a 'backButton' event) keeps its normal
+  // browser back-button behavior untouched.
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
+
+    let exitToast: HTMLDivElement | null = null;
+    let exitTimer: ReturnType<typeof setTimeout> | null = null;
+    const clearExitToast = () => {
+      if (exitTimer) clearTimeout(exitTimer);
+      exitTimer = null;
+      exitToast?.remove();
+      exitToast = null;
+    };
+
+    const listenerPromise = CapacitorApp.addListener('backButton', () => {
+      sound.playTap();
+
+      if (incomingInviteRef.current) {
+        void handleDeclineIncomingCall();
+        return;
+      }
+      if (activeCallRef.current) {
+        handleEndCall();
+        return;
+      }
+      if (showE2EEModalRef.current) {
+        setShowE2EEModal(false);
+        return;
+      }
+      if (showSyncContactsModalRef.current) {
+        setShowSyncContactsModal(false);
+        return;
+      }
+      if (showGroupCreateModalRef.current) {
+        setShowGroupCreateModal(false);
+        return;
+      }
+      if (activeConversationRef.current) {
+        setActiveConversation(null);
+        return;
+      }
+      if (activeTabRef.current !== 'chats') {
+        setActiveTab('chats');
+        return;
+      }
+
+      // Already at the root screen: double-back-to-exit (kept from the
+      // earlier handler on main). First press shows a hint, a second press
+      // within 2s exits.
+      if (exitToast) {
+        CapacitorApp.exitApp();
+        return;
+      }
+      exitToast = document.createElement('div');
+      exitToast.textContent = 'Press back again to exit';
+      exitToast.style.cssText = [
+        'position:fixed', 'bottom:80px', 'left:50%', 'transform:translateX(-50%)',
+        'background:rgba(0,0,0,0.75)', 'color:#fff', 'padding:10px 20px',
+        'border-radius:20px', 'font-size:13px', 'z-index:99999',
+        'pointer-events:none', 'white-space:nowrap',
+      ].join(';');
+      document.body.appendChild(exitToast);
+      exitTimer = setTimeout(clearExitToast, 2000);
+    });
+
+    return () => {
+      clearExitToast();
+      void listenerPromise.then((listener) => listener.remove());
+    };
+    // Registered once; the handler reads current state via the refs above.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Listen for incoming calls for as long as the user is signed in.
   useEffect(() => {
