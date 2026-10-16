@@ -5,6 +5,10 @@ import { Users, Sparkles, Check, X, Lock } from 'lucide-react';
 import { sound } from '../lib/sound';
 import { generateKeyFingerprint } from '../lib/crypto';
 
+// A group is you plus at least one other person, up to 500 in total.
+const MIN_MEMBERS = 2;
+const MAX_MEMBERS = 500;
+
 interface GroupCreateModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -29,13 +33,18 @@ export const GroupCreateModal: React.FC<GroupCreateModalProps> = ({
 
   if (!isOpen) return null;
 
+  // The creator always counts as a member.
+  const totalMembers = selectedContactIds.length + 1;
+  const hasEnoughMembers = totalMembers >= MIN_MEMBERS;
+  const canCreate = !!groupName.trim() && hasEnoughMembers && totalMembers <= MAX_MEMBERS;
+
   const toggleContact = (id: string) => {
     sound.playTap();
     if (selectedContactIds.includes(id)) {
       setSelectedContactIds((prev) => prev.filter((i) => i !== id));
     } else {
-      if (selectedContactIds.length >= 499) {
-        alert('Maximum group capacity of 500 members reached.');
+      if (totalMembers >= MAX_MEMBERS) {
+        alert(`Maximum group capacity of ${MAX_MEMBERS} members reached.`);
         return;
       }
       setSelectedContactIds((prev) => [...prev, id]);
@@ -44,7 +53,7 @@ export const GroupCreateModal: React.FC<GroupCreateModalProps> = ({
 
   const handleCreate = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!groupName.trim()) return;
+    if (!canCreate) return;
     sound.playSend();
 
     const newGroup: Conversation = {
@@ -53,8 +62,8 @@ export const GroupCreateModal: React.FC<GroupCreateModalProps> = ({
       name: groupName.trim(),
       avatar: groupAvatar,
       members: [currentUserId, ...selectedContactIds],
-      memberCount: selectedContactIds.length + 1,
-      maxMembers: 500,
+      memberCount: totalMembers,
+      maxMembers: MAX_MEMBERS,
       adminIds: [currentUserId],
       unreadCount: 0,
       isEncrypted: true,
@@ -62,7 +71,7 @@ export const GroupCreateModal: React.FC<GroupCreateModalProps> = ({
       isPinned: false,
       disappearingTimerHours: 0,
       createdAt: Date.now(),
-      groupDescription: description || "Encrypted group on S\u2019ovo with up to 500 participants.",
+      groupDescription: description || `Encrypted group on S\u2019ovo for ${MIN_MEMBERS} to ${MAX_MEMBERS} participants.`,
     };
 
     onCreateGroup(newGroup);
@@ -115,7 +124,7 @@ export const GroupCreateModal: React.FC<GroupCreateModalProps> = ({
             <div>
               <h3 className="font-display font-bold text-lg text-gold-glossy">New Encrypted Group</h3>
               <p className="text-xs" style={{ color: "var(--color-text-secondary)" }}>
-                Up to 500 members with multi-party E2EE
+                {MIN_MEMBERS} to {MAX_MEMBERS} members with multi-party E2EE
               </p>
             </div>
           </div>
@@ -143,7 +152,7 @@ export const GroupCreateModal: React.FC<GroupCreateModalProps> = ({
             }}
           >
             <span className="text-xs font-medium" style={{ color: "var(--color-text-secondary)" }}>
-              Group Member Capacity
+              Group Members ({MIN_MEMBERS}-{MAX_MEMBERS})
             </span>
             <span
               className="text-xs font-mono font-bold px-2.5 py-1"
@@ -154,7 +163,7 @@ export const GroupCreateModal: React.FC<GroupCreateModalProps> = ({
                 borderRadius: "var(--radius-sm)",
               }}
             >
-              {selectedContactIds.length + 1} / 500 Members
+              {totalMembers} / {MAX_MEMBERS} Members
             </span>
           </div>
 
@@ -268,17 +277,23 @@ export const GroupCreateModal: React.FC<GroupCreateModalProps> = ({
             }}
           >
             <Lock className="w-3.5 h-3.5 flex-shrink-0" style={{ color: "var(--color-gold)" }} />
-            <span>Group keys are ratcheted using sender keys for up to 500 members.</span>
+            <span>Group keys are ratcheted using sender keys for groups of {MIN_MEMBERS} to {MAX_MEMBERS} members.</span>
           </div>
+
+          {!hasEnoughMembers && (
+            <p className="text-[11px] text-center" style={{ color: "var(--color-text-secondary)" }}>
+              Select at least one person to start a group (minimum {MIN_MEMBERS} members including you).
+            </p>
+          )}
 
           <button
             type="submit"
-            disabled={!groupName.trim()}
+            disabled={!canCreate}
             className="w-full py-3.5 gold-glossy-button font-display font-bold text-xs flex items-center justify-center gap-2 cursor-pointer shadow-lg disabled:opacity-50 active:scale-98"
             style={{ borderRadius: "var(--radius-md)", color: "var(--color-bg)" }}
           >
             <Sparkles className="w-4 h-4 fill-current" />
-            <span>Create 500-Member Group Chat</span>
+            <span>Create Group Chat ({totalMembers} {totalMembers === 1 ? 'member' : 'members'})</span>
           </button>
         </form>
       </motion.div>
