@@ -93,9 +93,12 @@ export default function App() {
 
   // Navigation & App Lifecycle states
   const [appStage, setAppStage] = useState<'splash' | 'auth' | 'main'>('splash');
+  // Read the on-device cache and saved settings once; everything below derives from them.
+  const [initialCache] = useState<User | null>(() => loadCachedProfile());
+  const [initialSettings] = useState<UserSettings>(() => loadSettings(DEFAULT_SETTINGS));
   // Seeded from the on-device cache so a returning user lands in the app
   // immediately (even offline) instead of bouncing through the login screen.
-  const [currentUser, setCurrentUser] = useState<User | null>(() => loadCachedProfile());
+  const [currentUser, setCurrentUser] = useState<User | null>(initialCache);
   const [activeTab, setActiveTab] = useState<'chats' | 'statuses' | 'calls' | 'settings'>('chats');
   const [activeConversation, setActiveConversation] = useState<Conversation | null>(null);
   // Which specific person's story the full-screen status viewer should open
@@ -106,14 +109,16 @@ export default function App() {
   // Security & Biometric Lock state
   // A returning user with biometric lock on is locked from the very first
   // frame (decided from the on-device cache, so it also works offline).
-  const [isBiometricLocked, setIsBiometricLocked] = useState(() => {
-    const cached = loadCachedProfile();
-    return !!cached?.biometricEnabled && loadSettings(DEFAULT_SETTINGS).biometricLock;
-  });
+  const [isBiometricLocked, setIsBiometricLocked] = useState(
+    () => !!initialCache?.biometricEnabled && initialSettings.biometricLock
+  );
   // The lock decision above already covered this launch if a cache existed.
-  const lockCheckedRef = useRef(loadCachedProfile() !== null);
+  const lockCheckedRef = useRef(initialCache !== null);
   // True when the app started without network and the token is still pending refresh.
   const offlineBootRef = useRef(false);
+  // Bumped on every sign-out so an in-flight profile fetch from the old session
+  // can tell it is stale and must not re-cache or re-set the user.
+  const authEpochRef = useRef(0);
   const [showE2EEModal, setShowE2EEModal] = useState(false);
   const [e2eePeerInfo, setE2EEPeerInfo] = useState<{
     id: string;
@@ -143,7 +148,7 @@ export default function App() {
   const [incomingInvite, setIncomingInvite] = useState<CallInvite | null>(null);
 
   // Data Collections — all populated from Firestore below, never from mock/fake seed data.
-  const [settings, setSettings] = useState<UserSettings>(() => loadSettings(DEFAULT_SETTINGS));
+  const [settings, setSettings] = useState<UserSettings>(initialSettings);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [messagesMap, setMessagesMap] = useState<Record<string, Message[]>>({});
   const [statusStories, setStatusStories] = useState<UserStatusStory[]>([]);
@@ -175,17 +180,20 @@ export default function App() {
     let cancelled = false;
 
     const applySession = async (authUser: import('@supabase/supabase-js').User) => {
+      const epoch = authEpochRef.current;
       let u: User | null = null;
       try {
         u = await ensureProfile(authUser);
-        cacheProfile(u);
       } catch (err) {
         // Offline / transient failure: fall back to the last good copy.
         console.error('Could not refresh profile; using cached copy if available', err);
         const cached = loadCachedProfile();
         if (cached && cached.id === authUser.id) u = cached;
       }
-      if (cancelled || !u) return;
+      // The user may have signed out while we were waiting on the network.
+      // Drop the result instead of re-caching a profile for a dead session.
+      if (cancelled || !u || epoch !== authEpochRef.current) return;
+      cacheProfile(u);
       const fresh = u;
 
       const wasOffline = offlineBootRef.current;
@@ -208,6 +216,7 @@ export default function App() {
     };
 
     const applySignedOut = () => {
+      authEpochRef.current += 1;
       clearCachedProfile();
       offlineBootRef.current = false;
       setCurrentUser(null);
@@ -354,6 +363,7 @@ export default function App() {
   };
 
   const handleSignOut = () => {
+    authEpochRef.current += 1;
     clearCachedProfile();
     supabase.auth.signOut();
     setCurrentUser(null);
