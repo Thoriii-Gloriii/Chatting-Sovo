@@ -121,6 +121,57 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
 
     return () => { supabase.removeChannel(channel); };
   }, [conversation?.id]);
+
+  // ── Read receipts ──────────────────────────────────────────────────────────
+  // Incoming messages used to stay at 'sent' forever: nothing on the receiving
+  // side ever wrote 'read', so the sender's ticks could never change.
+  //
+  // Rules: direct chats only (a single 'read' flag can't say *which* group member
+  // read it), only while the app is actually on screen, and never if the user
+  // turned read receipts off in Settings.
+  const markedReadRef = useRef<Set<string>>(new Set());
+  const [appVisible, setAppVisible] = useState(
+    typeof document === 'undefined' ? true : document.visibilityState === 'visible'
+  );
+
+  useEffect(() => {
+    const onVisibility = () => setAppVisible(document.visibilityState === 'visible');
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => document.removeEventListener('visibilitychange', onVisibility);
+  }, []);
+
+  useEffect(() => {
+    if (!conversation || conversation.type !== 'direct') return;
+    if (!settings.readReceipts || !appVisible) return;
+
+    const unreadIds = messages
+      .filter(
+        (m) =>
+          m.senderId !== currentUser.id &&
+          m.status !== 'read' &&
+          !markedReadRef.current.has(m.id)
+      )
+      .map((m) => m.id);
+    if (unreadIds.length === 0) return;
+
+    unreadIds.forEach((id) => markedReadRef.current.add(id));
+    const idSet = new Set(unreadIds);
+    // Optimistic local update; the realtime UPDATE echo confirms it.
+    setMessages((prev) => prev.map((m) => (idSet.has(m.id) ? { ...m, status: 'read' } : m)));
+
+    supabase
+      .from('messages')
+      .update({ status: 'read' })
+      .in('id', unreadIds)
+      .then(({ error }) => {
+        if (error) {
+          console.error('Failed to send read receipts', error);
+          // Let the next pass retry these.
+          unreadIds.forEach((id) => markedReadRef.current.delete(id));
+        }
+      });
+  }, [messages, conversation?.id, conversation?.type, settings.readReceipts, appVisible, currentUser.id]);
+
   const [showAttachMenu, setShowAttachMenu] = useState(false);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [isRecordingVoice, setIsRecordingVoice] = useState(false);
