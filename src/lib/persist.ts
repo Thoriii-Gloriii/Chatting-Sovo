@@ -13,6 +13,35 @@ import type { User, UserSettings } from '../types';
 const SETTINGS_KEY = 'sovo.settings.v1';
 const PROFILE_KEY = 'sovo.profile.v1';
 
+/**
+ * The only profile fields written to localStorage. Everything else on `User`
+ * (pinCode, phoneNumber, phoneSyncHash) is sensitive and not needed to draw the
+ * first frame, so it is never persisted here; it is re-fetched from the server
+ * as soon as the app is online. The public key and fingerprint are public data.
+ */
+const CACHED_PROFILE_FIELDS: readonly (keyof User)[] = [
+  'id',
+  'username',
+  'displayName',
+  'avatarUrl',
+  'bio',
+  'isOnline',
+  'lastSeen',
+  'e2eePublicKey',
+  'e2eeFingerprint',
+  'joinedAt',
+  'devicesCount',
+  'biometricEnabled',
+];
+
+function pickCacheable(user: User): User {
+  const out: Record<string, unknown> = {};
+  for (const key of CACHED_PROFILE_FIELDS) {
+    if (key in user) out[key] = user[key];
+  }
+  return out as unknown as User;
+}
+
 function readJson<T>(key: string): T | null {
   try {
     const raw = localStorage.getItem(key);
@@ -41,12 +70,16 @@ export function saveSettings(settings: UserSettings) {
 }
 
 export function loadCachedProfile(): User | null {
-  const u = readJson<User>(PROFILE_KEY);
-  return u && typeof u.id === 'string' ? u : null;
+  const raw = readJson<User>(PROFILE_KEY);
+  if (!raw || typeof raw.id !== 'string') return null;
+  const clean = pickCacheable(raw);
+  // Scrub copies written before the whitelist existed (they may hold a PIN or phone number).
+  if (Object.keys(raw).length !== Object.keys(clean).length) writeJson(PROFILE_KEY, clean);
+  return clean;
 }
 
 export function cacheProfile(user: User) {
-  writeJson(PROFILE_KEY, user);
+  writeJson(PROFILE_KEY, pickCacheable(user));
 }
 
 export function clearCachedProfile() {
