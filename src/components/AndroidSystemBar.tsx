@@ -125,7 +125,7 @@ export const AndroidNavigationBar: React.FC<AndroidNavigationBarProps> = ({
 }) => {
   return (
     <div
-      className="w-full h-5 flex items-center justify-center select-none relative z-40"
+      className="w-full h-5 shrink-0 flex items-center justify-center select-none relative z-40"
       style={{
         backgroundColor: "var(--color-bg)",
         borderTop: "1px solid var(--color-border)",
