@@ -18,7 +18,11 @@ export async function ensureProfile(authUser: AuthUser, displayNameHint?: string
     .maybeSingle();
 
   if (selectError) {
+    // We don't know whether a profile exists (e.g. the device is offline), so
+    // creating a fresh fallback row here would fabricate a blank profile over a
+    // real one. Let the caller decide (App falls back to its cached profile).
     console.error('Failed to look up profile', selectError);
+    throw selectError;
   }
   if (existing) return existing as User;
 
