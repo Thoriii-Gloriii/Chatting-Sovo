@@ -63,6 +63,18 @@ jobs:
         run: |
           npx cap sync android
 
+      - name: Set app name to S'ovoChat[v1.5]
+        run: |
+          cat > android/app/src/main/res/values/strings.xml <<'EOF'
+          <?xml version='1.0' encoding='utf-8'?>
+          <resources>
+              <string name="app_name">S\'ovoChat[v1.5]</string>
+              <string name="title_activity_main">S\'ovoChat[v1.5]</string>
+              <string name="package_name">com.sovo.chat</string>
+              <string name="custom_url_scheme">com.sovo.chat</string>
+          </resources>
+          EOF
+
       - name: Build APK
         run: |
           cd android
@@ -78,14 +90,14 @@ jobs:
       - name: Update Latest Release
         uses: ncipollo/release-action@v1
         with:
-          name: "S'ovo Chat App (Latest)"
+          name: "S'ovoChat[v1.5]"
           tag: "latest"
           allowUpdates: true
           removeArtifacts: true
           artifacts: "android/app/build/outputs/apk/debug/app-debug.apk"
           token: ${{ secrets.GITHUB_TOKEN }}
           body: |
-            Latest debug APK, built from `main`.
+            S'ovoChat[v1.5] - latest debug APK, built from `main`.
 
             Install: download `app-debug.apk`, then allow install from unknown
             sources when Android prompts.
