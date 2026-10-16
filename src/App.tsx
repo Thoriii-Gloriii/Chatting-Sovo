@@ -1,5 +1,13 @@
 import { supabase } from './lib/supabase';
 import { ensureProfile } from './lib/authProfile';
+import { isAuthRetryableFetchError } from '@supabase/supabase-js';
+import {
+  loadSettings,
+  saveSettings,
+  loadCachedProfile,
+  cacheProfile,
+  clearCachedProfile,
+} from './lib/persist';
 import { uploadFileToStorage } from './lib/upload';
 import { useUIDensity } from './hooks/useUIDensity';
 import React, { useState, useEffect, useRef } from 'react';
@@ -85,7 +93,9 @@ export default function App() {
 
   // Navigation & App Lifecycle states
   const [appStage, setAppStage] = useState<'splash' | 'auth' | 'main'>('splash');
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  // Seeded from the on-device cache so a returning user lands in the app
+  // immediately (even offline) instead of bouncing through the login screen.
+  const [currentUser, setCurrentUser] = useState<User | null>(() => loadCachedProfile());
   const [activeTab, setActiveTab] = useState<'chats' | 'statuses' | 'calls' | 'settings'>('chats');
   const [activeConversation, setActiveConversation] = useState<Conversation | null>(null);
   // Which specific person's story the full-screen status viewer should open
@@ -94,7 +104,16 @@ export default function App() {
   const [statusViewerUserId, setStatusViewerUserId] = useState<string | null>(null);
 
   // Security & Biometric Lock state
-  const [isBiometricLocked, setIsBiometricLocked] = useState(false);
+  // A returning user with biometric lock on is locked from the very first
+  // frame (decided from the on-device cache, so it also works offline).
+  const [isBiometricLocked, setIsBiometricLocked] = useState(() => {
+    const cached = loadCachedProfile();
+    return !!cached?.biometricEnabled && loadSettings(DEFAULT_SETTINGS).biometricLock;
+  });
+  // The lock decision above already covered this launch if a cache existed.
+  const lockCheckedRef = useRef(loadCachedProfile() !== null);
+  // True when the app started without network and the token is still pending refresh.
+  const offlineBootRef = useRef(false);
   const [showE2EEModal, setShowE2EEModal] = useState(false);
   const [e2eePeerInfo, setE2EEPeerInfo] = useState<{
     id: string;
@@ -124,7 +143,7 @@ export default function App() {
   const [incomingInvite, setIncomingInvite] = useState<CallInvite | null>(null);
 
   // Data Collections — all populated from Firestore below, never from mock/fake seed data.
-  const [settings, setSettings] = useState<UserSettings>(DEFAULT_SETTINGS);
+  const [settings, setSettings] = useState<UserSettings>(() => loadSettings(DEFAULT_SETTINGS));
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [messagesMap, setMessagesMap] = useState<Record<string, Message[]>>({});
   const [statusStories, setStatusStories] = useState<UserStatusStory[]>([]);
@@ -146,28 +165,75 @@ export default function App() {
   const fetchedProfileIds = useRef<Set<string>>(new Set());
 
   // Check saved session on load, and react to sign-in/sign-out afterward.
+  //
+  // "Log in once, stay logged in": the Supabase session persists on the device,
+  // and the user is only sent back to the login screen when the session is
+  // genuinely gone (explicit sign-out, or the server rejecting the refresh
+  // token). Being offline at launch is NOT a sign-out — we keep the cached
+  // profile on screen and pick the session back up when the network returns.
   useEffect(() => {
     let cancelled = false;
 
-    const applySession = async (authUser: import('@supabase/supabase-js').User | null) => {
-      if (authUser) {
-        const u = await ensureProfile(authUser);
-        if (cancelled) return;
-        setCurrentUser((prev) => prev || u);
-        if (u.biometricEnabled && settings.biometricLock) {
-          setIsBiometricLocked(true);
-        }
-        setAppStage((prev) => (prev === 'auth' ? 'main' : prev));
-      } else {
-        setCurrentUser(null);
-        setAppStage((prev) => (prev === 'main' ? 'auth' : prev));
+    const applySession = async (authUser: import('@supabase/supabase-js').User) => {
+      let u: User | null = null;
+      try {
+        u = await ensureProfile(authUser);
+        cacheProfile(u);
+      } catch (err) {
+        // Offline / transient failure: fall back to the last good copy.
+        console.error('Could not refresh profile; using cached copy if available', err);
+        const cached = loadCachedProfile();
+        if (cached && cached.id === authUser.id) u = cached;
       }
+      if (cancelled || !u) return;
+      const fresh = u;
+
+      const wasOffline = offlineBootRef.current;
+      offlineBootRef.current = false;
+      setCurrentUser((prev) => {
+        if (!prev || prev.id !== fresh.id) return fresh;
+        // First successful refresh after an offline start: hand the data
+        // effects a new object so they re-subscribe and refetch.
+        if (wasOffline) return fresh;
+        return JSON.stringify(prev) === JSON.stringify(fresh) ? prev : fresh;
+      });
+
+      // Biometric lock applies once per cold start, not on every hourly
+      // token refresh.
+      if (!lockCheckedRef.current) {
+        lockCheckedRef.current = true;
+        if (fresh.biometricEnabled && settings.biometricLock) setIsBiometricLocked(true);
+      }
+      setAppStage((prev) => (prev === 'auth' ? 'main' : prev));
     };
 
-    supabase.auth.getSession().then(({ data: { session } }) => applySession(session?.user ?? null));
+    const applySignedOut = () => {
+      clearCachedProfile();
+      offlineBootRef.current = false;
+      setCurrentUser(null);
+      setAppStage((prev) => (prev === 'main' ? 'auth' : prev));
+    };
 
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
-      applySession(session?.user ?? null);
+    supabase.auth.getSession().then(({ data: { session }, error }) => {
+      if (cancelled) return;
+      if (session?.user) {
+        void applySession(session.user);
+      } else if (error && isAuthRetryableFetchError(error)) {
+        // No network, so the stored token couldn't be refreshed yet. Stay put;
+        // the client keeps retrying and will emit an auth event when it works.
+        offlineBootRef.current = true;
+      } else {
+        applySignedOut();
+      }
+    });
+
+    const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
+      if (session?.user) {
+        void applySession(session.user);
+      } else if (event === 'SIGNED_OUT') {
+        applySignedOut();
+      }
+      // INITIAL_SESSION with no session is handled by getSession() above.
     });
     return () => {
       cancelled = true;
@@ -185,6 +251,16 @@ export default function App() {
   useEffect(() => {
     sound.setEnabled(settings.soundEffects);
   }, [settings.soundEffects]);
+
+  // Settings used to live only in memory and reset on every launch.
+  useEffect(() => {
+    saveSettings(settings);
+  }, [settings]);
+
+  // Keep the on-device profile copy current (avatar/name edits, published key).
+  useEffect(() => {
+    if (currentUser) cacheProfile(currentUser);
+  }, [currentUser]);
 
   // Apply dark/light theme to html element whenever darkMode setting changes.
   useEffect(() => {
@@ -272,11 +348,13 @@ export default function App() {
   };
 
   const handleAuthenticate = (user: User) => {
+    cacheProfile(user);
     setCurrentUser(user);
     setAppStage('main');
   };
 
   const handleSignOut = () => {
+    clearCachedProfile();
     supabase.auth.signOut();
     setCurrentUser(null);
     setActiveConversation(null);
@@ -429,13 +507,18 @@ export default function App() {
     if (!currentUser) return;
     let cancelled = false;
 
-    const mapToContacts = (rows: User[]): SyncedContact[] =>
+    // Only the columns the directory actually renders. `select('*')` used to
+    // pull every other user's pinCode, phoneNumber and key material into the
+    // client for no reason.
+    type DirectoryRow = Pick<User, 'id' | 'username' | 'displayName' | 'avatarUrl' | 'bio'>;
+
+    const mapToContacts = (rows: DirectoryRow[]): SyncedContact[] =>
       rows
         .filter((u) => u.id !== currentUser.id)
         .map((u) => ({
           id: u.id,
           name: u.displayName,
-          phoneNumber: u.phoneNumber || '',
+          phoneNumber: '',
           isRegistered: true,
           sovoUsername: u.username,
           sovoAvatar: u.avatarUrl,
@@ -446,10 +529,10 @@ export default function App() {
     const loadContacts = () => {
       supabase
         .from('profiles')
-        .select('*')
+        .select('id, username, displayName, avatarUrl, bio')
         .then(({ data, error }) => {
           if (error) console.error('Failed to load user directory', error);
-          if (!cancelled && data) setSyncedContacts(mapToContacts(data as User[]));
+          if (!cancelled && data) setSyncedContacts(mapToContacts(data as DirectoryRow[]));
         });
     };
     loadContacts();
@@ -1064,6 +1147,10 @@ export default function App() {
   const showE2EEModalRef = useRef(showE2EEModal);
   const showSyncContactsModalRef = useRef(showSyncContactsModal);
   const showGroupCreateModalRef = useRef(showGroupCreateModal);
+  // "Leave S'ovo?" confirmation shown when back is pressed on the home screen.
+  const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
+  const showLeaveConfirmRef = useRef(showLeaveConfirm);
+  const isBiometricLockedRef = useRef(isBiometricLocked);
   useEffect(() => {
     activeConversationRef.current = activeConversation;
   }, [activeConversation]);
@@ -1079,38 +1166,47 @@ export default function App() {
   useEffect(() => {
     showGroupCreateModalRef.current = showGroupCreateModal;
   }, [showGroupCreateModal]);
+  useEffect(() => {
+    showLeaveConfirmRef.current = showLeaveConfirm;
+  }, [showLeaveConfirm]);
+  useEffect(() => {
+    isBiometricLockedRef.current = isBiometricLocked;
+  }, [isBiometricLocked]);
 
   // Hardware Android back button. Capacitor's BridgeActivity has no history
-  // to pop for this app (it's client-state navigation, not routed), so left
-  // unhandled the OS default is to finish() the Activity on every press —
-  // the app closes instead of navigating back a step. This listener steps
-  // the in-app state back one level per press, and only lets the real
-  // back button close the app once the user is already at the root
-  // (chats tab, no open conversation, no modal, no active call). It only
-  // fires on native Android via @capacitor/app, so the web/GitHub Pages
-  // build (which never gets a 'backButton' event) keeps its normal
-  // browser back-button behavior untouched.
+  // to pop (navigation here is client state, not routes), so unhandled the OS
+  // default finishes the Activity and the app closes. Each press instead steps
+  // back one level:
+  //
+  //   biometric lock up            -> ignored (back must not bypass the lock)
+  //   incoming call                -> decline it
+  //   active call                  -> ignored (the End button hangs up, so a
+  //                                   stray press can't drop a call)
+  //   "Leave S'ovo?" dialog        -> dismiss it
+  //   open modal                   -> close it
+  //   open chat                    -> chat list (home)
+  //   any other tab                -> chat list (home)
+  //   already on home              -> "Leave S'ovo?"; Yes sends the app to the
+  //                                   background (home screen) instead of
+  //                                   closing it, so it stays signed in.
+  //
+  // The listener is registered once and reads current state via the refs
+  // above, so it never closes over stale values. It only fires on native
+  // Android, so the web build keeps normal browser back behaviour.
   useEffect(() => {
     if (!Capacitor.isNativePlatform()) return;
-
-    let exitToast: HTMLDivElement | null = null;
-    let exitTimer: ReturnType<typeof setTimeout> | null = null;
-    const clearExitToast = () => {
-      if (exitTimer) clearTimeout(exitTimer);
-      exitTimer = null;
-      exitToast?.remove();
-      exitToast = null;
-    };
 
     const listenerPromise = CapacitorApp.addListener('backButton', () => {
       sound.playTap();
 
+      if (isBiometricLockedRef.current) return;
       if (incomingInviteRef.current) {
         void handleDeclineIncomingCall();
         return;
       }
-      if (activeCallRef.current) {
-        handleEndCall();
+      if (activeCallRef.current) return;
+      if (showLeaveConfirmRef.current) {
+        setShowLeaveConfirm(false);
         return;
       }
       if (showE2EEModalRef.current) {
@@ -1130,36 +1226,27 @@ export default function App() {
         return;
       }
       if (activeTabRef.current !== 'chats') {
+        setStatusViewerUserId(null);
         setActiveTab('chats');
         return;
       }
-
-      // Already at the root screen: double-back-to-exit (kept from the
-      // earlier handler on main). First press shows a hint, a second press
-      // within 2s exits.
-      if (exitToast) {
-        CapacitorApp.exitApp();
-        return;
-      }
-      exitToast = document.createElement('div');
-      exitToast.textContent = 'Press back again to exit';
-      exitToast.style.cssText = [
-        'position:fixed', 'bottom:80px', 'left:50%', 'transform:translateX(-50%)',
-        'background:rgba(0,0,0,0.75)', 'color:#fff', 'padding:10px 20px',
-        'border-radius:20px', 'font-size:13px', 'z-index:99999',
-        'pointer-events:none', 'white-space:nowrap',
-      ].join(';');
-      document.body.appendChild(exitToast);
-      exitTimer = setTimeout(clearExitToast, 2000);
+      // Home screen: ask before leaving.
+      setShowLeaveConfirm(true);
     });
 
     return () => {
-      clearExitToast();
       void listenerPromise.then((listener) => listener.remove());
     };
     // Registered once; the handler reads current state via the refs above.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const handleLeaveApp = () => {
+    setShowLeaveConfirm(false);
+    // Moves the task to the background like pressing Home. The session and
+    // notifications keep working; the app is not closed.
+    void CapacitorApp.minimizeApp();
+  };
 
   // Listen for incoming calls for as long as the user is signed in.
   useEffect(() => {
@@ -1275,13 +1362,13 @@ export default function App() {
 
   return (
     <div
-      className="min-h-screen w-full flex flex-col items-center justify-center p-0 selection:bg-[#d4af37]/30 selection:text-[#f3e5ab]"
+      className="h-dvh w-full flex flex-col items-center justify-center p-0 overflow-hidden selection:bg-[#d4af37]/30 selection:text-[#f3e5ab]"
       id="sovo-app-root"
       style={{ backgroundColor: 'var(--color-bg)', color: 'var(--color-text)' }}
     >
       {/* Full-screen app container */}
       <div
-        className="w-full overflow-hidden flex flex-col min-h-screen relative"
+        className="w-full h-full min-h-0 overflow-hidden flex flex-col relative"
         id="android-device-chassis"
         style={{ backgroundColor: 'var(--color-surface)' }}
       >
@@ -1290,7 +1377,7 @@ export default function App() {
             so nothing but the story content is visible (Instagram/Snapchat-
             style immersive viewer). */}
         {activeTab !== 'statuses' && (
-        <header className="px-4 backdrop-blur-md flex items-center justify-between sticky top-0 z-40"
+        <header className="px-4 backdrop-blur-md flex items-center justify-between shrink-0 z-40"
           style={{
             backgroundColor: 'var(--color-header)',
             borderBottom: '1px solid var(--color-border)',
@@ -1348,7 +1435,7 @@ export default function App() {
         )}
 
         {/* Main Content Area */}
-        <main className="flex-1 flex flex-col relative overflow-hidden">
+        <main className="flex-1 min-h-0 flex flex-col relative overflow-hidden">
           {/* Active Chat Conversation Room or Tab View */}
           {activeConversation ? (
             <ChatRoom
@@ -1471,7 +1558,7 @@ export default function App() {
             chat room, and hidden during the full-screen status viewer) */}
         {!activeConversation && activeTab !== 'statuses' && (
           <nav
-            className="px-1 flex items-center justify-around z-30 shadow-2xl"
+            className="px-1 flex items-center justify-around shrink-0 z-30 shadow-2xl"
             style={{
               backgroundColor: 'var(--color-header)',
               borderTop: '1px solid var(--color-border)',
@@ -1559,10 +1646,11 @@ export default function App() {
           </nav>
         )}
 
-        {/* Android System Navigation Gesture Bar at bottom — hidden during
-            the full-screen status viewer for a true edge-to-edge immersive
-            view; the viewer has its own close (X) button instead. */}
-        {activeTab !== 'statuses' && (
+        {/* Simulated Android system nav bar. Only for the web/GitHub Pages
+            preview: on a real device the OS draws its own back/home/recents,
+            so rendering ours too just doubled it up. Also hidden during the
+            full-screen status viewer (which has its own close button). */}
+        {!Capacitor.isNativePlatform() && activeTab !== 'statuses' && (
         <AndroidNavigationBar
           onBack={handleAndroidBack}
           onHome={() => {
@@ -1576,6 +1664,57 @@ export default function App() {
         />
         )}
       </div>
+
+      {/* "Leave the app?" confirmation, shown when back is pressed on the home screen */}
+      {showLeaveConfirm && (
+        <div
+          className="fixed inset-0 z-[80] flex items-center justify-center p-6 bg-black/70 backdrop-blur-sm"
+          onClick={() => setShowLeaveConfirm(false)}
+          id="sovo-leave-confirm"
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="sovo-leave-title"
+            className="w-full max-w-xs rounded-2xl p-5 shadow-2xl text-center"
+            style={{
+              backgroundColor: 'var(--color-surface)',
+              border: '1px solid var(--color-gold-border)',
+              color: 'var(--color-text)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 id="sovo-leave-title" className="text-base font-semibold mb-1">
+              Leave S&apos;ovo?
+            </h2>
+            <p className="text-xs mb-4" style={{ color: 'var(--color-text-secondary)' }}>
+              The app will keep running in the background.
+            </p>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setShowLeaveConfirm(false)}
+                className="flex-1 py-2.5 rounded-xl text-sm font-medium cursor-pointer"
+                style={{
+                  backgroundColor: 'var(--color-elevated)',
+                  border: '1px solid var(--color-border)',
+                  color: 'var(--color-text)',
+                }}
+              >
+                Stay
+              </button>
+              <button
+                type="button"
+                onClick={handleLeaveApp}
+                className="flex-1 py-2.5 rounded-xl text-sm font-semibold cursor-pointer gold-glossy-button"
+                style={{ color: '#1a1405' }}
+              >
+                Leave
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Biometric Lock Modal Guard */}
       <BiometricModal
