@@ -63,7 +63,7 @@ jobs:
         run: |
           npx cap sync android
 
-      - name: Set app name to S'ovoChat[v1.5]
+      - name: Set app name to S'ovoChat[v1.5.1]
         run: |
           cat > android/app/src/main/res/values/strings.xml <<'EOF'
           <?xml version='1.0' encoding='utf-8'?>
